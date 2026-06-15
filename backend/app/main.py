@@ -7,6 +7,7 @@ pipeline, the server-rendered UI, the preserved-diagram mount, and the contract'
 
 from __future__ import annotations
 
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -19,8 +20,11 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app import store, web
 from app.api import courses, lectures
+from app.auth import router as auth_router
 from app.config import active_storage, get_settings
 from app.models import LectureStatus
+
+log = logging.getLogger("echonotes")
 
 
 @asynccontextmanager
@@ -29,13 +33,13 @@ async def _lifespan(app: FastAPI):
     # lectures left mid-processing as failed so the UI shows a clear message
     # instead of an endless "processing" spinner.
     try:
-        for course in store.list_courses():
-            for lec in store.list_lectures(course["id"]):
-                if lec.get("status") in ("processing", "uploaded"):
-                    store.update_lecture(
-                        lec["id"], status=LectureStatus.failed,
-                        progress="Processing was interrupted (the server restarted). Please re-upload.",
-                    )
+        # System path: scan ALL lectures (every owner) — recovery is not per-user.
+        for lec in store.list_all_lectures():
+            if lec.get("status") in ("processing", "uploaded"):
+                store.update_lecture(
+                    lec["id"], status=LectureStatus.failed,
+                    progress="Processing was interrupted (the server restarted). Please re-upload.",
+                )
     except Exception:
         pass
     yield
@@ -58,6 +62,7 @@ _assets = Path(get_settings().data_dir) / "assets"
 _assets.mkdir(parents=True, exist_ok=True)
 app.mount("/assets", StaticFiles(directory=str(_assets)), name="assets")
 
+app.include_router(auth_router)
 app.include_router(courses.router)
 app.include_router(lectures.router)
 app.include_router(web.router)
@@ -77,8 +82,9 @@ def health() -> dict:
             "storage": active_storage()}
 
 
-_STATUS_CODE = {400: "bad_request", 404: "not_found", 409: "conflict",
-                413: "payload_too_large"}
+_STATUS_CODE = {400: "bad_request", 401: "unauthorized", 403: "forbidden",
+                404: "not_found", 409: "conflict", 413: "payload_too_large",
+                503: "service_unavailable"}
 
 
 @app.exception_handler(StarletteHTTPException)
@@ -108,5 +114,9 @@ async def validation_handler(request: Request, exc: RequestValidationError):
 
 @app.exception_handler(Exception)
 async def unhandled_handler(request: Request, exc: Exception):
+    # Log the real error server-side; return a generic message so internal details
+    # (DB/driver/stack text, secrets in connection strings) never leak to clients.
+    log.exception("Unhandled error on %s %s", request.method, request.url.path)
     return JSONResponse(status_code=500,
-                        content={"error": {"code": "internal_error", "message": str(exc)}})
+                        content={"error": {"code": "internal_error",
+                                           "message": "An unexpected error occurred."}})

@@ -136,3 +136,7 @@ No existing tool merges the two streams. Messaging apps, slide repositories, and
 - Audio source for the demo lecture: self-recorded vs. provided? (decide Day 1)
 - Are slides always PDF, or also PPTX/images for the demo? (scope to PDF unless decided otherwise)
 - Single-user demo or multi-user accounts? (default: lightweight single-user for the event)
+  → **Resolved post-event by feature `002-accounts-multitenancy`:** EchoNotes is now multi-user with
+  per-user data isolation (each Course has an `owner_id`; auth via email+OTP/password + Google). See
+  `specs/002-accounts-multitenancy/` and Constitution Article X. This does not change the 001 core
+  pipeline — it wraps it in a per-user boundary.

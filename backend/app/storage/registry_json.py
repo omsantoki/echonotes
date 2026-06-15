@@ -1,7 +1,11 @@
 """JSON-file registry backend (local dev).
 
-A tiny JSON index of courses/lectures/diagrams guarded by an in-process lock.
-Single-process only — production uses the Postgres backend instead.
+A tiny JSON index of users/courses/lectures/diagrams/auth_tokens guarded by an
+in-process lock. Single-process only — production uses the Postgres backend instead.
+
+Feature 002 (Art. X): users + hashed auth tokens live here too, and course/lecture
+reads/lists/deletes filter by `owner_id` when one is supplied (the owner filter is
+enforced here, not only in the route). `owner_id=None` = internal/system path.
 """
 
 from __future__ import annotations
@@ -11,7 +15,8 @@ import threading
 from pathlib import Path
 
 from app.config import get_settings
-from app.models import Course, DiagramAsset, Lecture, LectureStatus
+from app.models import (AuthToken, Course, DiagramAsset, Lecture, LectureStatus,
+                        TokenKind, User)
 
 
 class JsonRegistry:
@@ -27,17 +32,93 @@ class JsonRegistry:
     def _load(self) -> dict:
         path = self._path()
         if not path.exists():
-            return {"courses": {}, "lectures": {}, "diagrams": {}}
+            return {"users": {}, "courses": {}, "lectures": {}, "diagrams": {}, "auth_tokens": {}}
         data = json.loads(path.read_text())
-        data.setdefault("courses", {})
-        data.setdefault("lectures", {})
-        data.setdefault("diagrams", {})
+        for key in ("users", "courses", "lectures", "diagrams", "auth_tokens"):
+            data.setdefault(key, {})
         return data
 
     def _save(self, data: dict) -> None:
         self._path().write_text(json.dumps(data, default=str, indent=2))
 
-    # --- courses ---
+    # --- users (002) ---
+    def create_user(self, user: User) -> User:
+        with self._lock:
+            data = self._load()
+            data["users"][user.id] = user.model_dump(mode="json")
+            self._save(data)
+        return user
+
+    def get_user(self, user_id: str) -> dict | None:
+        return self._load()["users"].get(user_id)
+
+    def get_user_by_email(self, email: str) -> dict | None:
+        email = email.strip().lower()
+        for u in self._load()["users"].values():
+            if (u.get("email") or "").lower() == email:
+                return u
+        return None
+
+    def get_user_by_google_sub(self, google_sub: str) -> dict | None:
+        if not google_sub:
+            return None
+        for u in self._load()["users"].values():
+            if u.get("google_sub") == google_sub:
+                return u
+        return None
+
+    def update_user(self, user_id: str, changes: dict) -> None:
+        with self._lock:
+            data = self._load()
+            u = data["users"].get(user_id)
+            if not u:
+                return
+            u.update(changes)
+            self._save(data)
+
+    # --- auth tokens (002) — stored hashed, single-use, TTL'd ---
+    def create_auth_token(self, token: AuthToken) -> AuthToken:
+        with self._lock:
+            data = self._load()
+            data["auth_tokens"][token.id] = token.model_dump(mode="json")
+            self._save(data)
+        return token
+
+    def find_auth_token(self, kind: TokenKind, *, user_id: str | None = None,
+                        token_hash: str | None = None) -> dict | None:
+        toks = [t for t in self._load()["auth_tokens"].values() if t["kind"] == kind.value]
+        if token_hash is not None:
+            toks = [t for t in toks if t["token_hash"] == token_hash]
+        if user_id is not None:
+            # the active code/token is the newest still-unused one for this user+kind
+            toks = [t for t in toks if t["user_id"] == user_id and not t.get("used")]
+        if not toks:
+            return None
+        toks.sort(key=lambda t: t.get("created_at", ""), reverse=True)
+        return toks[0]
+
+    def bump_auth_token(self, token_id: str, *, attempts: int | None = None,
+                        used: bool | None = None) -> None:
+        with self._lock:
+            data = self._load()
+            t = data["auth_tokens"].get(token_id)
+            if not t:
+                return
+            if attempts is not None:
+                t["attempts"] = attempts
+            if used is not None:
+                t["used"] = used
+            self._save(data)
+
+    def invalidate_auth_tokens(self, user_id: str, kind: TokenKind) -> None:
+        with self._lock:
+            data = self._load()
+            for t in data["auth_tokens"].values():
+                if t["user_id"] == user_id and t["kind"] == kind.value:
+                    t["used"] = True
+            self._save(data)
+
+    # --- courses (owner-scoped) ---
     def create_course(self, course: Course) -> Course:
         with self._lock:
             data = self._load()
@@ -45,27 +126,37 @@ class JsonRegistry:
             self._save(data)
         return course
 
-    def list_courses(self) -> list[dict]:
+    def list_courses(self, owner_id: str | None = None) -> list[dict]:
         data = self._load()
-        courses = list(data["courses"].values())
+        courses = [
+            c for c in data["courses"].values()
+            if owner_id is None or c.get("owner_id") == owner_id
+        ]
         for c in courses:
             c["lecture_count"] = sum(
                 1 for lec in data["lectures"].values() if lec["course_id"] == c["id"]
             )
         return courses
 
-    def get_course(self, course_id: str) -> dict | None:
-        return self._load()["courses"].get(course_id)
+    def get_course(self, course_id: str, owner_id: str | None = None) -> dict | None:
+        course = self._load()["courses"].get(course_id)
+        if course is None:
+            return None
+        if owner_id is not None and course.get("owner_id") != owner_id:
+            return None  # not the owner → same as "not found" (no existence leak, Art. X)
+        return course
 
-    def delete_course_row(self, course_id: str) -> bool:
+    def delete_course_row(self, course_id: str, owner_id: str | None = None) -> bool:
         with self._lock:
             data = self._load()
-            existed = data["courses"].pop(course_id, None) is not None
-            if existed:
-                self._save(data)
-        return existed
+            course = data["courses"].get(course_id)
+            if course is None or (owner_id is not None and course.get("owner_id") != owner_id):
+                return False
+            del data["courses"][course_id]
+            self._save(data)
+        return True
 
-    # --- lectures ---
+    # --- lectures (owner-scoped via the parent course) ---
     def create_lecture(self, lecture: Lecture) -> Lecture:
         with self._lock:
             data = self._load()
@@ -73,8 +164,18 @@ class JsonRegistry:
             self._save(data)
         return lecture
 
-    def get_lecture(self, lecture_id: str) -> dict | None:
-        return self._load()["lectures"].get(lecture_id)
+    def _owns_lecture(self, data: dict, lec: dict, owner_id: str | None) -> bool:
+        if owner_id is None:
+            return True
+        course = data["courses"].get(lec.get("course_id"))
+        return bool(course) and course.get("owner_id") == owner_id
+
+    def get_lecture(self, lecture_id: str, owner_id: str | None = None) -> dict | None:
+        data = self._load()
+        lec = data["lectures"].get(lecture_id)
+        if lec is None or not self._owns_lecture(data, lec, owner_id):
+            return None
+        return lec
 
     def list_lectures(self, course_id: str) -> list[dict]:
         data = self._load()
@@ -83,6 +184,9 @@ class JsonRegistry:
     def list_lecture_ids(self, course_id: str) -> list[str]:
         data = self._load()
         return [lid for lid, lec in data["lectures"].items() if lec.get("course_id") == course_id]
+
+    def list_all_lectures(self) -> list[dict]:
+        return list(self._load()["lectures"].values())
 
     def update_lecture(
         self, lecture_id: str, status: LectureStatus | None, progress: str | None
@@ -107,11 +211,12 @@ class JsonRegistry:
             lec["links"] = links
             self._save(data)
 
-    def delete_lecture_rows(self, lecture_id: str) -> bool:
-        """Remove the lecture record + its diagram rows. Returns False if absent."""
+    def delete_lecture_rows(self, lecture_id: str, owner_id: str | None = None) -> bool:
+        """Remove the lecture record + its diagram rows. Returns False if absent or not owned."""
         with self._lock:
             data = self._load()
-            if lecture_id not in data["lectures"]:
+            lec = data["lectures"].get(lecture_id)
+            if lec is None or not self._owns_lecture(data, lec, owner_id):
                 return False
             data["diagrams"] = {
                 aid: a for aid, a in data["diagrams"].items()

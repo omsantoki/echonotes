@@ -21,8 +21,11 @@ _MAX_BYTES = 500 * 1024 * 1024  # 500 MB guard rail
 
 
 async def create_and_launch_lecture(course_id: str, title: str, audio: UploadFile,
-                                    slides: UploadFile, bg: BackgroundTasks) -> Lecture:
-    if not store.get_course(course_id):
+                                    slides: UploadFile, bg: BackgroundTasks,
+                                    owner_id: str | None = None) -> Lecture:
+    # Owner-scoped lookup: a course the caller doesn't own reads as "not found" (Art. X),
+    # so uploading to someone else's course returns 404, not 403.
+    if not store.get_course(course_id, owner_id=owner_id):
         raise HTTPException(404, detail={"code": "course_not_found",
                                          "message": f"No course {course_id}."})
     _require_ext(audio.filename, _AUDIO_EXTS, "audio")

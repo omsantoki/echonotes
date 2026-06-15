@@ -10,7 +10,7 @@ task generated for this project MUST adhere to it. When the /speckit.plan and
 **Project:** EchoNotes — merged lecture notes that capture what the professor *said*, not just what was on the slides.
 **Owner:** Om Santoki (ID 202301019)
 **Context:** 7-Day AI Buildathon · Theme: Academic Life
-**Version:** 1.0.0 · **Ratified:** Day 0
+**Version:** 1.1.0 · **Ratified:** Day 0 · **Last amended:** 2026-06-15 (Article X)
 
 ---
 
@@ -70,6 +70,17 @@ Everything built must be demonstrable on a real lecture. The team obtains/record
 
 The product must deploy to a public URL within the event. Prefer the simplest tool that gets there (Article governs: simplicity beats cleverness). The output document — clean, readable, source-labeled — is the star; the UI stays minimal and serves the document.
 
+## Article X — Tenant Isolation & Secret Hygiene
+
+EchoNotes is multi-user. Each user owns their own courses, lectures, notes, diagrams, and search, and **a user only ever sees their own data** — never another user's. This is as non-negotiable as source labeling (Art. III).
+
+- **Isolation is enforced, not assumed.** Every Course carries an `owner_id`; the owner filter is pushed **down into the storage layer**, not applied only in a route, so no single forgotten check can leak data. A request with no session is rejected (**401**); a request for a resource the caller does not own returns the same **404** a missing resource returns — **never 403** — so existence is not leaked.
+- **The public edge is deliberate and minimal.** The landing page stays public (no forced login on arrival); only the data pages require a session. Auth is never theater (Art. II) — email is really verified, secrets are really hashed, and third-party tokens (e.g. Google) are verified server-side against the provider's certs, never trusted from the client.
+- **Secrets are hashed and env-scoped.** No plaintext passwords, OTPs, or reset/verification tokens are ever stored or logged. Passwords use a vetted hasher; OTPs and tokens are stored only as hashes, with a short TTL, single-use, and attempt-limited. All secrets (signing keys, SMTP creds, OAuth ids) come from **environment only**, with safe blank/dev defaults so local dev runs with zero external services (Art. VIII, IX). The sole, deliberate exception: in local dev, the OTP / reset link prints to the server log so no mail server is needed.
+- **Data is migrated, never dropped.** When ownership is introduced, pre-existing "common" data is assigned to a documented bootstrap owner; it is never silently discarded.
+
+This Article wraps the core (Art. I) in a per-user boundary; it does not change the merge, the source labels, or the "store notes, not audio" rule (Art. III, IV). Full spec: `specs/002-accounts-multitenancy/`.
+
 ---
 
 ## Governance
@@ -81,3 +92,4 @@ The product must deploy to a public URL within the event. Prefer the simplest to
 
 **Amendment log**
 - v1.0.0 (Day 0): Initial ratification.
+- v1.1.0 (2026-06-15): Added Article X — Tenant Isolation & Secret Hygiene (feature 002-accounts-multitenancy). MINOR: additive principle, no existing Article changed.

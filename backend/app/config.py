@@ -84,6 +84,31 @@ class Settings(BaseSettings):
     link_lectures: bool = True
     link_min_similarity: float = 0.5
 
+    # --- Auth & multi-tenancy (feature 002, Constitution Art. X) ---
+    # ALL of these have safe blank/dev defaults so local dev runs with zero external
+    # services: blank JWT_SECRET → a dev-only signing key; blank SMTP → OTP/reset links
+    # print to the server log; blank GOOGLE_OAUTH_CLIENT_ID → the Google button is hidden.
+    # NEVER ship a blank JWT_SECRET to production — set a strong random value there.
+    jwt_secret: str = ""             # blank = dev-only fallback key (see auth/security.py)
+    jwt_expiry: int = 86400          # session lifetime, seconds (24h)
+    otp_ttl: int = 600               # OTP lifetime, seconds (~10 min)
+    otp_max_attempts: int = 5        # failed OTP checks before the code is locked
+    reset_token_ttl: int = 3600      # set-password / reset-link lifetime, seconds (1h)
+    frontend_url: str = "http://localhost:5173"  # base for reset links emailed to users
+
+    # SMTP (blank host = email prints to the server log; no mail server needed in dev).
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""          # Gmail: an App Password — never the real password
+    smtp_from: str = ""              # defaults to smtp_user when blank
+
+    # Google sign-in (blank = the "Continue with Google" button is hidden / endpoint 503s).
+    google_oauth_client_id: str = ""
+
+    # Bootstrap admin: legacy pre-002 ("common") courses are migrated to this owner.
+    bootstrap_admin_email: str = "admin@echonotes.local"
+
 
 @lru_cache
 def get_settings() -> Settings:

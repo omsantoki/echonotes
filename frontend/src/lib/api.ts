@@ -1,11 +1,16 @@
 import { apiUrl, ApiRequestError, del, getJson, postJson } from '@/lib/http'
+import { clearToken, getToken } from '@/lib/session'
 import type {
   CourseCreated,
   CourseDetail,
   CourseSummary,
   LectureResponse,
+  OkMessage,
   SearchResponse,
+  SessionResponse,
   UploadAccepted,
+  User,
+  VerifyOtpResponse,
 } from '@/types/api'
 
 export interface UploadInput {
@@ -33,6 +38,10 @@ export function uploadLecture(
     const xhr = new XMLHttpRequest()
     xhr.open('POST', apiUrl('/api/lectures'))
     xhr.responseType = 'json'
+    // This path is XHR (not the http.ts fetch wrapper) so it can report upload
+    // progress — it must attach the session token itself (feature 002).
+    const token = getToken()
+    if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total)
     }
@@ -41,6 +50,7 @@ export function uploadLecture(
       if (xhr.status >= 200 && xhr.status < 300) {
         resolve(body as UploadAccepted)
       } else {
+        if (xhr.status === 401) clearToken() // session expired → guards send to /login
         const err = body?.error
         reject(
           new ApiRequestError(err?.message ?? 'Upload failed', err?.code ?? 'error', xhr.status),
@@ -51,6 +61,21 @@ export function uploadLecture(
       reject(new ApiRequestError('Network error during upload', 'network_error', 0))
     xhr.send(form)
   })
+}
+
+export const auth = {
+  signup: (email: string) => postJson<OkMessage>('/api/auth/signup', { email }),
+  verifyOtp: (email: string, otp: string) =>
+    postJson<VerifyOtpResponse>('/api/auth/verify-otp', { email, otp }),
+  setPassword: (token: string, password: string) =>
+    postJson<SessionResponse>('/api/auth/set-password', { token, password }),
+  login: (email: string, password: string) =>
+    postJson<SessionResponse>('/api/auth/login', { email, password }),
+  google: (idToken: string) => postJson<SessionResponse>('/api/auth/google', { id_token: idToken }),
+  forgotPassword: (email: string) => postJson<OkMessage>('/api/auth/forgot-password', { email }),
+  resetPassword: (token: string, password: string) =>
+    postJson<OkMessage>('/api/auth/reset-password', { token, password }),
+  me: () => getJson<User>('/api/auth/me'),
 }
 
 export const api = {

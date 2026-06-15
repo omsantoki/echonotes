@@ -9,6 +9,15 @@ schemas during T010+. -->
 - JSON responses unless noted. Multipart for uploads.
 - Errors: `{ "error": { "code": string, "message": string } }`
 
+> **Authentication & ownership (feature 002-accounts-multitenancy).** As of 002, every route in this
+> file **requires an authenticated owner**: send `Authorization: Bearer <session_token>`. A missing or
+> invalid session returns **401** `unauthorized`. Each route is scoped to the caller — `GET /api/courses`
+> lists only the caller's courses, and any course/lecture the caller does not own returns **404** (not
+> 403, so existence is not leaked). `POST /api/courses` records the creator as `owner_id`. The owner
+> filter is enforced in the storage layer (not just the route). `/api/health` and `/api/auth/*` are the
+> only public endpoints. The auth surface and the full per-route 401/404 table live in
+> `specs/002-accounts-multitenancy/contracts/api.md`.
+
 ---
 
 ### POST /api/courses
