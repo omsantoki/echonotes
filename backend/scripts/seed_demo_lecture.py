@@ -53,7 +53,15 @@ def _persist(chunks: list[NoteChunk]) -> None:
 
 
 def main() -> None:
-    course = store.create_course(Course(name="Biology 101 — Photosynthesis (demo)"))
+    # Own the seeded course (feature 002, Art. X) so it shows up for a real user. The
+    # bootstrap admin is the simplest owner; claim it via forgot-password to log in and
+    # see this course, or reassign owner_id to your own signed-up user.
+    from app.auth.service import ensure_bootstrap_admin
+    owner = ensure_bootstrap_admin()
+    course = store.create_course(
+        Course(name="Biology 101 — Photosynthesis (demo)", owner_id=owner["id"]))
+    print(f"Seeded course owned by {owner['email']} "
+          f"(claim it with forgot-password to log in and view it).")
 
     # --- Lecture A: the earlier lecture that Lecture B builds on ---
     lec_a = Lecture(course_id=course.id, title="Lecture 2 — The Photosynthetic Membrane",

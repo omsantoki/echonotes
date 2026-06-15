@@ -11,8 +11,12 @@ import {
   Sparkles,
 } from 'lucide-react'
 import { buttonClasses } from '@/components/ui/Button'
+import { useAuth } from '@/hooks/useAuth'
 
 export function LandingPage() {
+  const { isAuthenticated } = useAuth()
+  // Logged-in visitors jump straight to their courses; everyone else starts at sign-up.
+  const startHref = isAuthenticated ? '/app' : '/signup'
   return (
     <div className="overflow-hidden">
       {/* Hero */}
@@ -39,7 +43,7 @@ export function LandingPage() {
             a slide are highlighted, with the reasoning shown.
           </p>
           <div className="mt-9 flex flex-wrap items-center justify-center gap-3">
-            <Link to="/app" className={buttonClasses('primary', 'lg')}>
+            <Link to={startHref} className={buttonClasses('primary', 'lg')}>
               Get started
               <ArrowRight className="h-4 w-4" />
             </Link>
@@ -48,7 +52,7 @@ export function LandingPage() {
             </a>
           </div>
           <p className="mt-4 text-xs text-slate-400 dark:text-slate-500">
-            No sign-up to try · Your audio is transcribed, then deleted
+            Free to start · Your notes stay private to you · Audio is transcribed, then deleted
           </p>
         </div>
 
@@ -118,7 +122,7 @@ export function LandingPage() {
         <h2 className="font-serif text-3xl font-bold text-slate-900 dark:text-white">
           Turn your next lecture into notes you can trust.
         </h2>
-        <Link to="/app" className={buttonClasses('primary', 'lg', 'mt-8')}>
+        <Link to={startHref} className={buttonClasses('primary', 'lg', 'mt-8')}>
           Get started
           <ArrowRight className="h-4 w-4" />
         </Link>

@@ -1,6 +1,7 @@
 .venv/
 __pycache__/
 *.pyc
+.pytest_cache/
 .DS_Store
 
 # Backend config + local state (the app runs from backend/).

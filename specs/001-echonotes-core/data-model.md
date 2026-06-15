@@ -11,7 +11,14 @@ Storage is embeddings-first: the **vector store is the single persistence layer*
 |---|---|---|
 | id | string (uuid) | PK |
 | name | string | e.g. "Thermodynamics — Sem 4" |
+| owner_id | string | FK → User — the sole owner (added by feature 002; see below) |
 | created_at | datetime | |
+
+> **Ownership (feature 002-accounts-multitenancy).** As of 002, every Course has an `owner_id`
+> (FK → User). A course's Lectures, NoteChunks, and DiagramAssets are accessible only to that owner;
+> the owner filter is enforced in the storage layer and non-owned access returns 404 (not 403). Legacy
+> pre-002 "common" courses (no `owner_id`) are migrated to a bootstrap admin user — never dropped. Full
+> detail: `specs/002-accounts-multitenancy/data-model.md` and its `contracts/api.md`.
 
 ### Lecture
 | Field | Type | Notes |
@@ -51,7 +58,7 @@ Storage is embeddings-first: the **vector store is the single persistence layer*
 ## Relationships
 
 ```
-Course 1───* Lecture 1───* NoteChunk
+User 1───* Course 1───* Lecture 1───* NoteChunk      (User added by feature 002)
                    │
                    └───* DiagramAsset 1───* NoteChunk(diagram_ref)
 NoteChunk *───* NoteChunk   (links_to, Stretch — cross-lecture)

@@ -58,7 +58,9 @@ def main() -> int:
         return 1
     print(f"Demo lecture: slides={pdf.name}  audio={audio.name}")
 
-    course = store.create_course(Course(name="Validation — Photosynthesis"))
+    from app.auth.service import ensure_bootstrap_admin  # own the course (feature 002, Art. X)
+    course = store.create_course(
+        Course(name="Validation — Photosynthesis", owner_id=ensure_bootstrap_admin()["id"]))
     lec = Lecture(course_id=course.id, title="Demo lecture", status=LectureStatus.processing)
     store.create_lecture(lec)
     lecture_id = lec.id

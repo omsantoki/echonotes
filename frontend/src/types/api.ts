@@ -82,3 +82,32 @@ export interface SearchResponse {
 export interface ApiError {
   error: { code: string; message: string }
 }
+
+// --- Auth & accounts (feature 002, specs/002-accounts-multitenancy/contracts/api.md) ---
+
+export type AuthProvider = 'local' | 'google'
+
+export interface User {
+  id: string
+  email: string
+  auth_provider: AuthProvider
+  email_verified: boolean
+  created_at?: string
+}
+
+/** POST /api/auth/{set-password,login,google} */
+export interface SessionResponse {
+  session_token: string
+  user: User
+}
+
+/** POST /api/auth/signup and /forgot-password */
+export interface OkMessage {
+  ok: boolean
+  message: string
+}
+
+/** POST /api/auth/verify-otp */
+export interface VerifyOtpResponse {
+  set_password_token: string
+}

@@ -22,7 +22,8 @@ from __future__ import annotations
 from functools import lru_cache
 
 from app.config import get_settings
-from app.models import Course, DiagramAsset, Lecture, LectureStatus, NoteChunk
+from app.models import (AuthToken, Course, DiagramAsset, Lecture, LectureStatus,
+                        NoteChunk, TokenKind, User)
 
 
 # --------------------------------------------------------------------------- #
@@ -145,31 +146,85 @@ def assemble_document(lecture_id: str) -> dict:
 
 
 # --------------------------------------------------------------------------- #
+# Users & auth tokens (feature 002, Art. X) — structural registry rows.
+# Secrets are hashed before they reach here (see app/auth/security.py); this
+# facade never sees or stores a plaintext password, OTP, or token.
+# --------------------------------------------------------------------------- #
+
+def create_user(user: User) -> User:
+    return _registry().create_user(user)
+
+
+def get_user(user_id: str) -> dict | None:
+    return _registry().get_user(user_id)
+
+
+def get_user_by_email(email: str) -> dict | None:
+    return _registry().get_user_by_email(email)
+
+
+def get_user_by_google_sub(google_sub: str) -> dict | None:
+    return _registry().get_user_by_google_sub(google_sub)
+
+
+def update_user(user_id: str, changes: dict) -> None:
+    _registry().update_user(user_id, changes)
+
+
+def create_auth_token(token: AuthToken) -> AuthToken:
+    return _registry().create_auth_token(token)
+
+
+def find_auth_token(kind: TokenKind, *, user_id: str | None = None,
+                    token_hash: str | None = None) -> dict | None:
+    return _registry().find_auth_token(kind, user_id=user_id, token_hash=token_hash)
+
+
+def bump_auth_token(token_id: str, *, attempts: int | None = None,
+                    used: bool | None = None) -> None:
+    _registry().bump_auth_token(token_id, attempts=attempts, used=used)
+
+
+def invalidate_auth_tokens(user_id: str, kind: TokenKind) -> None:
+    """Mark every prior token of this kind used, so an old OTP/link can't be replayed."""
+    _registry().invalidate_auth_tokens(user_id, kind)
+
+
+# --------------------------------------------------------------------------- #
 # Course / Lecture registry (structural, not vectors)
+#
+# `owner_id` scopes reads/lists/deletes to the caller (feature 002, Art. X). The
+# filter is enforced in the registry backend, not here. `owner_id=None` is the
+# internal/system path (pipeline, startup recovery) with no owner filter.
 # --------------------------------------------------------------------------- #
 
 def create_course(course: Course) -> Course:
     return _registry().create_course(course)
 
 
-def list_courses() -> list[dict]:
-    return _registry().list_courses()
+def list_courses(owner_id: str | None = None) -> list[dict]:
+    return _registry().list_courses(owner_id)
 
 
-def get_course(course_id: str) -> dict | None:
-    return _registry().get_course(course_id)
+def get_course(course_id: str, owner_id: str | None = None) -> dict | None:
+    return _registry().get_course(course_id, owner_id)
 
 
 def create_lecture(lecture: Lecture) -> Lecture:
     return _registry().create_lecture(lecture)
 
 
-def get_lecture(lecture_id: str) -> dict | None:
-    return _registry().get_lecture(lecture_id)
+def get_lecture(lecture_id: str, owner_id: str | None = None) -> dict | None:
+    return _registry().get_lecture(lecture_id, owner_id)
 
 
 def list_lectures(course_id: str) -> list[dict]:
     return _registry().list_lectures(course_id)
+
+
+def list_all_lectures() -> list[dict]:
+    """Every lecture across all owners — system path only (startup recovery scan)."""
+    return _registry().list_all_lectures()
 
 
 def update_lecture(lecture_id: str, *, status: LectureStatus | None = None,
@@ -217,11 +272,12 @@ def list_all_diagrams() -> list[dict]:
 # Cross-store deletes — orchestrated here because they span all three backends.
 # --------------------------------------------------------------------------- #
 
-def delete_lecture(lecture_id: str) -> bool:
+def delete_lecture(lecture_id: str, owner_id: str | None = None) -> bool:
     """Delete a lecture and everything it owns: its NoteChunk vectors, its
     preserved diagram images, and its registry rows. Returns False if the lecture
-    does not exist. Idempotent / best-effort across the three stores."""
-    if not _registry().delete_lecture_rows(lecture_id):
+    does not exist OR is not owned by `owner_id` (when given) — so a non-owner sees
+    the same "not found" as a missing lecture (Art. X). Idempotent / best-effort."""
+    if not _registry().delete_lecture_rows(lecture_id, owner_id):
         return False
     try:
         _vectors().delete_by_lecture(lecture_id)
@@ -231,12 +287,14 @@ def delete_lecture(lecture_id: str) -> bool:
     return True
 
 
-def delete_course(course_id: str) -> bool:
-    """Delete a course and cascade-delete all of its lectures. Returns False if
-    the course does not exist."""
-    if _registry().get_course(course_id) is None:
+def delete_course(course_id: str, owner_id: str | None = None) -> bool:
+    """Delete a course and cascade-delete all of its lectures. Returns False if the
+    course does not exist OR is not owned by `owner_id` (when given) — non-owners get
+    the same "not found" (Art. X). Ownership is checked once here; the cascade then
+    deletes the now-confirmed-owned lectures internally."""
+    if _registry().get_course(course_id, owner_id) is None:
         return False
     for lid in _registry().list_lecture_ids(course_id):
-        delete_lecture(lid)
-    _registry().delete_course_row(course_id)
+        delete_lecture(lid)  # ownership already confirmed at the course level
+    _registry().delete_course_row(course_id, owner_id)
     return True
