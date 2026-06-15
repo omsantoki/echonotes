@@ -1,0 +1,24 @@
+# Keep the API image small + CPU-only — exclude everything not needed at runtime.
+.git
+.venv
+venv
+__pycache__
+*.pyc
+.env
+.env.*
+
+# Frontend is deployed separately (Vercel)
+frontend
+
+# Local data / vector store (state lives in managed services in prod)
+data
+.chroma
+
+# Docs, specs, samples, agent files
+specs
+.specify
+.claude
+samples
+DOCUMENTATION.md
+*.md
+!requirements.txt

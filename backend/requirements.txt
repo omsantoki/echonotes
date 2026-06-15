@@ -1,0 +1,24 @@
+# EchoNotes — production dependencies (CPU-only; PROVIDER=openai).
+# Pinned for reproducible deploy images. For LOCAL on-device models
+# (faster-whisper / sentence-transformers / Ollama) use requirements-local.txt.
+
+fastapi==0.136.3
+uvicorn[standard]==0.49.0
+python-multipart==0.0.32        # multipart uploads (audio + slides)
+pydantic==2.13.4
+pydantic-settings==2.14.1       # typed config from .env
+python-dotenv==1.2.2
+
+pymupdf==1.27.2.3               # PDF text + embedded image extraction
+numpy==2.4.6                   # cosine similarity for alignment
+openai==2.41.1                 # OpenAI models (PROVIDER=openai); also the Ollama client
+
+# --- Managed storage backends (active only when their env vars are set) ---
+qdrant-client==1.18.0          # vectors  → Qdrant Cloud (QDRANT_URL)
+psycopg[binary]==3.3.4         # registry → managed Postgres (DATABASE_URL)
+psycopg-pool==3.3.1            # connection pool (multi-worker safe)
+boto3==1.43.29                 # images   → Cloudflare R2 / AWS S3 (S3_BUCKET)
+
+# NOTE: the prod image uses Qdrant for vectors, so `chromadb` is intentionally
+# NOT here (it lives in requirements-local.txt). If you instead point production
+# at a remote Chroma via CHROMA_HTTP_URL, add `chromadb==1.5.9` to this file.

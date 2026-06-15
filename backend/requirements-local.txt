@@ -1,0 +1,14 @@
+# EchoNotes — LOCAL development extras (PROVIDER=local).
+# Adds the on-device model stack on top of the base/prod requirements. These are
+# heavy (torch, etc.) and intentionally excluded from the deploy image.
+#
+#   pip install -r requirements-local.txt
+#
+-r requirements.txt
+
+chromadb==1.5.9         # local (and remote) Chroma vector backend — the dev default
+faster-whisper          # on-device transcription (no API, no 25 MB limit)
+sentence-transformers   # the one embedding model, on-device (Art. VI)
+# Merge/vision run on a local LLM via Ollama (install separately from
+# https://ollama.com), reached through its OpenAI-compatible API by the `openai`
+# client already in requirements.txt.

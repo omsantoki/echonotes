@@ -1,0 +1,22 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+# Backend config + local state (the app runs from backend/).
+backend/.env
+backend/.chroma/
+backend/data/
+
+# Never commit raw audio (Art. IV). Demo slides/audio live in backend/samples/
+# deliberately; keep large media out of git unless it's the curated demo asset.
+backend/samples/*.wav
+backend/samples/*.mp3
+backend/samples/*.m4a
+DEPLOY.md 
+DOCUMENTATION.md
+EchoNotes_api_key.txt
+echonotes-s3_accessKeys.csv
+.txt
+data
+

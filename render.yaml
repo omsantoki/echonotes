@@ -1,0 +1,54 @@
+# Render Blueprint for the EchoNotes API (backend only; frontend → Vercel).
+# All persistent state lives in managed services (Postgres + Qdrant + R2/S3), so
+# the service is stateless: no disk, workers can scale.
+services:
+  - type: web
+    name: echonotes-api
+    runtime: docker
+    # Backend lives under backend/; build with that as the Docker context so the
+    # Dockerfile's COPY app/scripts/requirements.txt paths resolve unchanged.
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    region: oregon
+    plan: starter
+    healthCheckPath: /api/health
+    envVars:
+      # --- models (config) ---
+      - key: PROVIDER
+        value: openai
+      - key: CHAT_MODEL
+        value: gpt-4o-mini          # merge + diagram vision (cheap, multimodal)
+      - key: TRANSCRIBE_MODEL
+        value: whisper-1
+      - key: EMBEDDING_MODEL
+        value: text-embedding-3-small
+      - key: DESCRIBE_DIAGRAMS
+        value: "true"
+      - key: REFINE_NOTES
+        value: "false"
+      - key: WEB_CONCURRENCY
+        value: "2"
+      # set to the deployed frontend origin (comma-separated for multiple)
+      - key: CORS_ORIGINS
+        value: https://echonotes.vercel.app
+      # --- secrets + per-environment endpoints: set in the Render dashboard ---
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: QDRANT_URL
+        sync: false
+      - key: QDRANT_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ENDPOINT_URL          # R2 endpoint; blank for AWS S3
+        sync: false
+      - key: S3_REGION
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: S3_PUBLIC_BASE_URL
+        sync: false
