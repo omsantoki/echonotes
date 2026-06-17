@@ -1,4 +1,4 @@
-// Mirrors the EchoNotes FastAPI JSON contract (specs/001-echonotes-core/contracts/api.md).
+// Mirrors the EchoNotes FastAPI JSON contract (see the `api` capability in openspec/specs/).
 
 export type SourceType = 'slides' | 'spoken' | 'diagram'
 export type LectureStatus = 'uploaded' | 'processing' | 'ready' | 'failed'
@@ -83,7 +83,7 @@ export interface ApiError {
   error: { code: string; message: string }
 }
 
-// --- Auth & accounts (feature 002, specs/002-accounts-multitenancy/contracts/api.md) ---
+// --- Auth & accounts (see the `auth` capability in openspec/specs/) ---
 
 export type AuthProvider = 'local' | 'google'
 

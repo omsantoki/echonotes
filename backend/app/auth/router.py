@@ -1,5 +1,4 @@
-"""Auth endpoints (feature 002): /api/auth/* — see
-specs/002-accounts-multitenancy/contracts/api.md.
+"""Auth endpoints: /api/auth/* — see the `auth` capability in openspec/specs/.
 
 Thin router: all logic lives in service.py; the only authenticated endpoint here
 is GET /api/auth/me (via get_current_user). Errors raised by the service use the

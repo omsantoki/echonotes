@@ -14,9 +14,7 @@ frontend
 data
 .chroma
 
-# Docs, specs, samples, agent files
-specs
-.specify
+# Docs, samples, agent files
 .claude
 samples
 DOCUMENTATION.md
