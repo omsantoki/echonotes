@@ -28,10 +28,16 @@ log = logging.getLogger("echonotes.auth")
 _DEV_JWT_SECRET = "echonotes-dev-insecure-secret-do-not-use-in-production"
 
 
+_warned_dev_secret = False
+
+
 def _jwt_secret() -> str:
+    global _warned_dev_secret
     secret = get_settings().jwt_secret.strip()
     if not secret:
-        log.warning("JWT_SECRET is blank — using the insecure dev key. Set JWT_SECRET in production.")
+        if not _warned_dev_secret:  # warn once per process, not on every token op
+            log.warning("JWT_SECRET is blank — using the insecure dev key. Set JWT_SECRET in production.")
+            _warned_dev_secret = True
         return _DEV_JWT_SECRET
     return secret
 

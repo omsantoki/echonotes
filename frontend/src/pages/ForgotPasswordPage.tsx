@@ -38,7 +38,7 @@ export function ForgotPasswordPage() {
           <MailCheck className="h-10 w-10 text-emerald-500" />
           <p className="text-sm text-slate-600 dark:text-slate-300">
             If an account exists for <span className="font-medium">{email}</span>, a password reset
-            link is on its way. In local dev the link is printed to the server log.
+            link is on its way. Check your inbox — and your spam folder.
           </p>
         </div>
       </AuthCard>

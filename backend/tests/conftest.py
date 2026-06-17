@@ -43,6 +43,18 @@ from app.config import get_settings  # noqa: E402
 get_settings.cache_clear()  # drop anything cached from the real .env during collection
 
 
+@pytest.fixture(autouse=True)
+def _isolate():
+    """Reset settings cache + registry before every test so each starts hermetic and
+    clean (covers tests that use `store` directly, not just the `client` fixture, and
+    re-reads any env a test monkeypatched)."""
+    get_settings.cache_clear()
+    reg = pathlib.Path(_TMP) / "registry.json"
+    if reg.exists():
+        reg.unlink()
+    yield
+
+
 @pytest.fixture
 def client():
     """A fresh TestClient with an empty registry (clean tenant slate per test)."""

@@ -56,6 +56,14 @@ class Settings(BaseSettings):
     # dev), but production serves the SPA from another origin. Comma-separated.
     cors_origins: str = "http://localhost:5173,http://localhost:4173"
 
+    # Server-rendered console (app/web.py). It is single-tenant — every page acts as
+    # the bootstrap admin with NO login — so it must never be exposed publicly: an
+    # anonymous visitor could otherwise create courses and upload lectures (spending
+    # the OpenAI budget) and read the admin's data. The multi-tenant product surface
+    # is the React SPA + JSON API (per-user auth). Default ON for zero-config local
+    # dev; production (render.yaml) sets ENABLE_WEB_CONSOLE=false.
+    enable_web_console: bool = True
+
     # --- Cloud storage backends (leave ALL blank for local dev: Chroma +
     # registry.json + on-disk images). Each subsystem switches to its managed
     # service the moment its env var is set — see app/store.py selectors. ---
@@ -63,6 +71,7 @@ class Settings(BaseSettings):
     qdrant_url: str = ""
     qdrant_api_key: str = ""
     qdrant_collection: str = "notechunks"
+    qdrant_timeout: int = 60        # seconds; generous so cross-region upserts don't time out
     chroma_http_url: str = ""       # e.g. http://host:8000 (remote Chroma server)
     chroma_api_key: str = ""        # optional bearer token for a remote Chroma
     # Registry: managed Postgres if DATABASE_URL set; else local registry.json.

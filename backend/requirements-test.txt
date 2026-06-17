@@ -1,0 +1,8 @@
+# Test dependencies. The suite forces the LOCAL backends and mocks every external
+# service (OpenAI, SMTP/Brevo, Google, Qdrant, S3, Postgres), so it needs the local
+# vector store (Chroma) but NOT the heavy on-device ML stack (torch / faster-whisper
+# / sentence-transformers) — transcription and embeddings are mocked / passed inline.
+-r requirements.txt
+chromadb==1.5.9
+pytest==9.1.0
+pytest-cov==7.1.0
