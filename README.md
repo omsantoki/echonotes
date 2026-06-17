@@ -80,8 +80,8 @@ Validate on the demo lecture: `cd backend && python scripts/validate_demo.py`
 
 ## API
 
-Base `/api` · errors are `{"error": {"code", "message"}}`. Full contract:
-[`specs/001-echonotes-core/contracts/api.md`](specs/001-echonotes-core/contracts/api.md).
+Base `/api` · errors are `{"error": {"code", "message"}}`. Full contract: the `api` capability
+in [`openspec/specs/`](openspec/specs/) (and FastAPI's interactive `/docs`).
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -139,7 +139,7 @@ is stateless and scales. After first deploy with `DATABASE_URL`, run `python scr
 
 Core merge first · every block has a `reason` (honest, explainable AI) · source-label everything &
 emphasize spoken-only · **raw audio never persisted** · per-course persistence · one embedding model ·
-validate on the real demo lecture. (See `.specify/memory/constitution.md`.)
+validate on the real demo lecture.
 
 ## License
 
