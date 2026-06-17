@@ -15,7 +15,6 @@
   <img alt="License" src="https://img.shields.io/badge/license-TODO-lightgrey" /> <!-- TODO: confirm -->
 </p>
 
-**🔴 Live demo: [echonotes-sooty.vercel.app](https://echonotes-sooty.vercel.app)**
 
 An **AI-powered, RAG-based full-stack web app** — a multimodal pipeline combining **speech-to-text**,
 **document/PDF parsing**, **vision LLMs**, **text embeddings**, and **vector search** behind a FastAPI
