@@ -1,4 +1,4 @@
-import { Link, NavLink, useNavigate } from 'react-router-dom'
+import { Link, NavLink } from 'react-router-dom'
 import { LogOut } from 'lucide-react'
 import { Logo } from '@/components/ui/Logo'
 import { ThemeToggle } from '@/components/shell/ThemeToggle'
@@ -8,11 +8,14 @@ import { cn } from '@/lib/cn'
 
 export function TopNav() {
   const { isAuthenticated, loading, user, signOut } = useAuth()
-  const navigate = useNavigate()
 
   function logout() {
-    signOut()
-    navigate('/')
+    signOut() // clears the token, user, and React Query cache
+    // Hard reset to a clean, logged-out landing. This guarantees no per-account state
+    // or "intended destination" (the route guard's `from`) survives into the next
+    // login — otherwise logging out from a course page and signing in as a DIFFERENT
+    // account would send you back to the previous account's course URL → 404.
+    window.location.assign('/')
   }
 
   return (

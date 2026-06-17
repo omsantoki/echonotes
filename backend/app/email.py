@@ -22,42 +22,49 @@ log = logging.getLogger("echonotes.email")
 
 
 def _smtp_configured() -> bool:
-    return bool(get_settings().smtp_host.strip())
+    """SMTP counts as configured only when host + user + password are ALL set.
+
+    A half-filled config (e.g. host set but creds blank) would otherwise try to send,
+    fail, and silently drop the OTP. Requiring all three means an incomplete setup
+    falls back to the console log instead of leaving the user stuck.
+    """
+    s = get_settings()
+    return bool(s.smtp_host.strip() and s.smtp_user.strip() and s.smtp_password.strip())
 
 
 def send_email(to: str, subject: str, body: str) -> None:
-    """Send a plain-text email, or print it to the log when SMTP is unconfigured.
+    """Send a plain-text email; on any failure (or when SMTP isn't fully configured)
+    fall back to writing the message to the server log.
 
-    Never raises on a send failure — auth flows that email the user (signup,
-    forgot-password) must not 500 because the mail server hiccuped; the dev console
-    fallback always works. Failures are logged (without any secret).
+    Never raises — auth flows that email the user (signup, forgot-password) must not
+    500 because the mail server hiccuped, and the console fallback always carries the
+    OTP / reset link so the flow can still complete.
     """
     s = get_settings()
-    if not _smtp_configured():
-        # Local-dev fallback: the body carries the OTP / reset link — print it so the
-        # developer can complete the flow with no mail server (documented behavior).
-        log.warning("[email:console] To:%s | %s\n%s", to, subject, body)
-        return
-
-    sender = (s.smtp_from or s.smtp_user or "no-reply@echonotes.local").strip()
-    msg = EmailMessage()
-    msg["From"] = sender
-    msg["To"] = to
-    msg["Subject"] = subject
-    msg.set_content(body)
-    try:
-        with smtplib.SMTP(s.smtp_host, s.smtp_port, timeout=15) as smtp:
-            smtp.ehlo()
-            try:
-                smtp.starttls()
+    if _smtp_configured():
+        try:
+            sender = (s.smtp_from or s.smtp_user).strip()
+            msg = EmailMessage()
+            msg["From"] = sender
+            msg["To"] = to
+            msg["Subject"] = subject
+            msg.set_content(body)
+            with smtplib.SMTP(s.smtp_host, s.smtp_port, timeout=15) as smtp:
                 smtp.ehlo()
-            except smtplib.SMTPException:
-                pass  # server may not support STARTTLS (e.g. localhost test relay)
-            if s.smtp_user:
+                try:
+                    smtp.starttls()
+                    smtp.ehlo()
+                except smtplib.SMTPException:
+                    pass  # server may not support STARTTLS (e.g. localhost test relay)
                 smtp.login(s.smtp_user, s.smtp_password)
-            smtp.send_message(msg)
-    except Exception as exc:  # never let mail trouble break the auth flow
-        log.error("SMTP send to %s failed: %s", to, exc)
+                smtp.send_message(msg)
+            return
+        except Exception as exc:  # don't break the auth flow — fall through to the log
+            log.error("SMTP send to %s failed (%s) — falling back to console log.", to, exc)
+
+    # Fallback: SMTP not fully configured, or the send failed. The body carries the
+    # OTP / reset link so the user can still proceed (the documented dev fallback).
+    log.warning("[email:console] To:%s | %s\n%s", to, subject, body)
 
 
 def send_otp_email(to: str, otp: str) -> None:

@@ -25,7 +25,10 @@ from app.models import NoteChunk
 @lru_cache
 def _client() -> QdrantClient:
     s = get_settings()
-    return QdrantClient(url=s.qdrant_url, api_key=s.qdrant_api_key or None)
+    # Explicit, generous timeout: vector upserts cross regions (local/Render -> Qdrant
+    # Cloud), where the client's short default can surface as "write operation timed out".
+    return QdrantClient(url=s.qdrant_url, api_key=s.qdrant_api_key or None,
+                        timeout=s.qdrant_timeout)
 
 
 class QdrantVectors:

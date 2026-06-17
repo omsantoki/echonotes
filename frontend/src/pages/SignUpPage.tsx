@@ -135,7 +135,7 @@ export function SignUpPage() {
           <>
             We sent a 6-digit code to <span className="font-medium text-slate-700 dark:text-slate-200">{email}</span>.
             <br />
-            <span className="text-xs">In local dev the code is printed to the server log.</span>
+            <span className="text-xs">It can take a minute to arrive — don't forget to check your spam folder.</span>
           </>
         }
         footer={footer}

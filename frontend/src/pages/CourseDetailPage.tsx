@@ -40,7 +40,16 @@ export function CourseDetailPage() {
           <Spinner className="h-8 w-8 text-brand-600" />
         </div>
       )}
-      {isError && <ErrorState message={(error as Error)?.message} />}
+      {isError && (
+        <ErrorState
+          message={(error as Error)?.message}
+          action={
+            <Link to="/app" className={buttonClasses('secondary', 'sm')}>
+              Back to my courses
+            </Link>
+          }
+        />
+      )}
 
       {course && (
         <>

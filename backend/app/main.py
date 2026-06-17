@@ -65,7 +65,14 @@ app.mount("/assets", StaticFiles(directory=str(_assets)), name="assets")
 app.include_router(auth_router)
 app.include_router(courses.router)
 app.include_router(lectures.router)
-app.include_router(web.router)
+# The server-rendered console is single-tenant (acts as the bootstrap admin with no
+# login), so it is mounted ONLY when explicitly enabled — on by default for local dev,
+# off in production (render.yaml) so the public backend exposes no unauthenticated
+# course-create / lecture-upload surface. See Settings.enable_web_console.
+if get_settings().enable_web_console:
+    app.include_router(web.router)
+else:
+    log.info("Server-rendered web console disabled (ENABLE_WEB_CONSOLE=false).")
 
 
 @app.get("/api/health")
