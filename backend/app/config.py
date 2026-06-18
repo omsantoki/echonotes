@@ -56,6 +56,14 @@ class Settings(BaseSettings):
     # dev), but production serves the SPA from another origin. Comma-separated.
     cors_origins: str = "http://localhost:5173,http://localhost:4173"
 
+    # Server-rendered console (app/web.py). It is single-tenant — every page acts as
+    # the bootstrap admin with NO login — so it must never be exposed publicly: an
+    # anonymous visitor could otherwise create courses and upload lectures (spending
+    # the OpenAI budget) and read the admin's data. The multi-tenant product surface
+    # is the React SPA + JSON API (per-user auth). Default ON for zero-config local
+    # dev; production (render.yaml) sets ENABLE_WEB_CONSOLE=false.
+    enable_web_console: bool = True
+
     # --- Cloud storage backends (leave ALL blank for local dev: Chroma +
     # registry.json + on-disk images). Each subsystem switches to its managed
     # service the moment its env var is set — see app/store.py selectors. ---
@@ -63,6 +71,7 @@ class Settings(BaseSettings):
     qdrant_url: str = ""
     qdrant_api_key: str = ""
     qdrant_collection: str = "notechunks"
+    qdrant_timeout: int = 60        # seconds; generous so cross-region upserts don't time out
     chroma_http_url: str = ""       # e.g. http://host:8000 (remote Chroma server)
     chroma_api_key: str = ""        # optional bearer token for a remote Chroma
     # Registry: managed Postgres if DATABASE_URL set; else local registry.json.
@@ -83,6 +92,31 @@ class Settings(BaseSettings):
     # EARLIER lecture in the same course, when similarity clears the threshold.
     link_lectures: bool = True
     link_min_similarity: float = 0.5
+
+    # --- Auth & multi-tenancy (feature 002, Constitution Art. X) ---
+    # ALL of these have safe blank/dev defaults so local dev runs with zero external
+    # services: blank JWT_SECRET → a dev-only signing key; blank SMTP → OTP/reset links
+    # print to the server log; blank GOOGLE_OAUTH_CLIENT_ID → the Google button is hidden.
+    # NEVER ship a blank JWT_SECRET to production — set a strong random value there.
+    jwt_secret: str = ""             # blank = dev-only fallback key (see auth/security.py)
+    jwt_expiry: int = 86400          # session lifetime, seconds (24h)
+    otp_ttl: int = 600               # OTP lifetime, seconds (~10 min)
+    otp_max_attempts: int = 5        # failed OTP checks before the code is locked
+    reset_token_ttl: int = 3600      # set-password / reset-link lifetime, seconds (1h)
+    frontend_url: str = "http://localhost:5173"  # base for reset links emailed to users
+
+    # SMTP (blank host = email prints to the server log; no mail server needed in dev).
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""          # Gmail: an App Password — never the real password
+    smtp_from: str = ""              # defaults to smtp_user when blank
+
+    # Google sign-in (blank = the "Continue with Google" button is hidden / endpoint 503s).
+    google_oauth_client_id: str = ""
+
+    # Bootstrap admin: legacy pre-002 ("common") courses are migrated to this owner.
+    bootstrap_admin_email: str = "admin@echonotes.local"
 
 
 @lru_cache

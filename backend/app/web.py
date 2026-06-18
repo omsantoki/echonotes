@@ -14,6 +14,7 @@ from fastapi import APIRouter, BackgroundTasks, File, Form, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app import retrieve, store
+from app.auth import service as auth_service
 from app.ingest import create_and_launch_lecture
 from app.models import Course
 from app.render import document_to_html, page
@@ -23,9 +24,19 @@ router = APIRouter(tags=["web"])
 _SRC_TAG = {"slides": "📄 slides", "spoken": "🎙 spoken", "diagram": "📊 diagram"}
 
 
+def _owner_id() -> str:
+    """The single owner this server-rendered console operates as (feature 002, Art. X).
+
+    The multi-tenant product surface is the React SPA + JSON API (gated per user). This
+    built-in console is a single-tenant local/admin view bound to the bootstrap admin, so
+    it is always owner-scoped and never lists another user's data.
+    """
+    return auth_service.ensure_bootstrap_admin()["id"]
+
+
 @router.get("/", response_class=HTMLResponse)
 def home():
-    courses = store.list_courses()
+    courses = store.list_courses(owner_id=_owner_id())
     course_items = "".join(
         f'<li><a href="/courses/{c["id"]}">{html.escape(c["name"])}</a> '
         f'<span class="muted">({c.get("lecture_count", 0)} lectures)</span></li>'
@@ -62,7 +73,7 @@ def home():
 
 @router.post("/web/courses")
 def web_create_course(name: str = Form(...)):
-    store.create_course(Course(name=name))
+    store.create_course(Course(name=name, owner_id=_owner_id()))
     return RedirectResponse("/", status_code=303)
 
 
@@ -70,7 +81,8 @@ def web_create_course(name: str = Form(...)):
 async def web_create_lecture(bg: BackgroundTasks, course_id: str = Form(...),
                              title: str = Form(...), audio: UploadFile = File(...),
                              slides: UploadFile = File(...)):
-    lecture = await create_and_launch_lecture(course_id, title, audio, slides, bg)
+    lecture = await create_and_launch_lecture(course_id, title, audio, slides, bg,
+                                              owner_id=_owner_id())
     return RedirectResponse(f"/lectures/{lecture.id}", status_code=303)
 
 
@@ -98,7 +110,7 @@ def _search_html(course_id: str, q: str) -> str:
 
 @router.get("/courses/{course_id}", response_class=HTMLResponse)
 def course_page(course_id: str, q: str = ""):
-    course = store.get_course(course_id)
+    course = store.get_course(course_id, owner_id=_owner_id())
     if not course:
         return HTMLResponse(page("Not found", '<p>Course not found.</p>'), status_code=404)
     items = "".join(
@@ -113,7 +125,7 @@ def course_page(course_id: str, q: str = ""):
 
 @router.get("/lectures/{lecture_id}", response_class=HTMLResponse)
 def lecture_page(lecture_id: str):
-    lec = store.get_lecture(lecture_id)
+    lec = store.get_lecture(lecture_id, owner_id=_owner_id())
     if not lec:
         return HTMLResponse(page("Not found", '<p>Lecture not found.</p>'), status_code=404)
     title = html.escape(lec["title"])

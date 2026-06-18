@@ -32,8 +32,15 @@ def _content_type(ext: str) -> str:
 @lru_cache
 def _client():
     s = get_settings()
+    # Bounded connect/read timeouts + automatic retries so a slow cross-region upload
+    # fails fast and retries instead of hanging into a "write operation timed out".
     # Path-style addressing is the safe choice for custom endpoints (R2/MinIO).
-    cfg = Config(s3={"addressing_style": "path"}) if s.s3_endpoint_url else None
+    cfg = Config(
+        connect_timeout=10,
+        read_timeout=60,
+        retries={"max_attempts": 3, "mode": "standard"},
+        **({"s3": {"addressing_style": "path"}} if s.s3_endpoint_url else {}),
+    )
     return boto3.client(
         "s3",
         endpoint_url=s.s3_endpoint_url or None,

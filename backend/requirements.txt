@@ -13,6 +13,10 @@ pymupdf==1.27.2.3               # PDF text + embedded image extraction
 numpy==2.4.6                   # cosine similarity for alignment
 openai==2.41.1                 # OpenAI models (PROVIDER=openai); also the Ollama client
 
+# --- Auth & multi-tenancy (feature 002, Constitution Art. X) ---
+bcrypt==5.0.0                  # password hashing (with a sha256 pre-hash)
+PyJWT[crypto]==2.13.0          # session JWTs + Google id_token verification (PyJWKClient; pulls cryptography)
+
 # --- Managed storage backends (active only when their env vars are set) ---
 qdrant-client==1.18.0          # vectors  → Qdrant Cloud (QDRANT_URL)
 psycopg[binary]==3.3.4         # registry → managed Postgres (DATABASE_URL)
