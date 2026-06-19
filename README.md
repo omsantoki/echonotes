@@ -5,6 +5,7 @@
 > build on each other.
 
 <p>
+  <a href="https://echonotes-sooty.vercel.app"><img alt="Live demo" src="https://img.shields.io/badge/▶_live_demo-echonotes--sooty.vercel.app-46E3B7?logo=vercel&logoColor=white" /></a>
   <img alt="Python" src="https://img.shields.io/badge/python-3.11-blue?logo=python&logoColor=white" />
   <img alt="FastAPI" src="https://img.shields.io/badge/FastAPI-0.136-009688?logo=fastapi&logoColor=white" />
   <img alt="React" src="https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black" />
@@ -15,6 +16,7 @@
   <img alt="License" src="https://img.shields.io/badge/license-TODO-lightgrey" /> <!-- TODO: confirm -->
 </p>
 
+**▶ Live demo:** **https://echonotes-sooty.vercel.app** — create an account, start a course, and upload a lecture.
 
 An **AI-powered, RAG-based full-stack web app** — a multimodal pipeline combining **speech-to-text**,
 **document/PDF parsing**, **vision LLMs**, **text embeddings**, and **vector search** behind a FastAPI
@@ -42,6 +44,16 @@ spoken segments are **aligned** to slide sections via cosine similarity using **
 merge weaves them into a labeled narrative; chunks are embedded and persisted **per course** (so search
 and cross-lecture "builds on" links work).
 
+## Accounts & isolation
+
+**Email + password** sign-up (OTP-verified); sessions are JWTs. Every course is owned by a user, and
+all course/lecture/search/upload routes are **owner-scoped** — you only ever see your own data
+(non-owned resources return `404`, never `403`). Password reset is via an emailed link (SMTP in prod,
+console-logged in dev).
+
+> Google sign-in is implemented end-to-end on the backend but **off by default** — the button only
+> renders when a `VITE_GOOGLE_CLIENT_ID` is set, so the current UI (and the live demo) is email-only.
+
 ## Tech stack
 
 | Layer | Technology |
@@ -56,7 +68,9 @@ and cross-lecture "builds on" links work).
 | **Object storage** | local `/assets` (dev) → **AWS S3** via `boto3` (prod) |
 | **Numerics** | NumPy (cosine similarity for alignment) |
 | **Frontend** | React 19, Vite, TypeScript, Tailwind CSS, TanStack Query, React Router |
-| **Deploy** | Render / Railway (backend, Docker) · Vercel (frontend) |
+| **Auth / tenancy** | bcrypt (passwords), PyJWT (session JWT; optional Google `id_token` via PyJWKClient), email OTP + reset links (SMTP, console fallback) |
+| **Tests / CI** | backend `pytest`, frontend `vitest` + `tsc`, GitHub Actions |
+| **Deploy** | Render (backend, Docker) · Vercel (frontend) |
 
 ## Quick start
 
@@ -77,10 +91,15 @@ cd frontend && npm install && npm run dev     # http://localhost:5173
 Validate on the demo lecture: `cd backend && python scripts/validate_demo.py`
 (`Photosynthesis_Notes.pdf` is in [`backend/samples/`](backend/samples/); audio is git-ignored).
 
+Tests (hermetic — local backends forced, external I/O mocked): backend `cd backend && pytest`,
+frontend `cd frontend && npm test` (+ `npm run build` for `tsc`). CI runs both on every push
+([`.github/workflows/ci.yml`](.github/workflows/ci.yml)).
+
 ## API
 
-Base `/api` · errors are `{"error": {"code", "message"}}`. Full contract: the `api` capability
-in [`openspec/specs/`](openspec/specs/) (and FastAPI's interactive `/docs`).
+Base `/api` · errors are `{"error": {"code", "message"}}`. All course/lecture routes require a
+**Bearer session token** (`401` without one; `404` for resources you don't own). Full contract: the
+capability specs in [`openspec/specs/`](openspec/specs/) (and FastAPI's interactive `/docs`).
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -92,6 +111,15 @@ in [`openspec/specs/`](openspec/specs/) (and FastAPI's interactive `/docs`).
 | `GET` | `/api/lectures/{id}/export?format=md\|html` | Download notes |
 | `DELETE` | `/api/lectures/{id}` · `/api/courses/{id}` | Delete (cascades) |
 | `GET` | `/api/health` | Liveness + active provider/storage |
+
+**Auth** (`/api/auth`, see the `accounts-auth` capability):
+
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/api/auth/signup` · `/api/auth/verify-otp` · `/api/auth/set-password` | Email sign-up → OTP → set password |
+| `POST` | `/api/auth/login` · `/api/auth/google` | Password login · Google sign-in (`id_token`, optional/off by default) |
+| `POST` | `/api/auth/forgot-password` · `/api/auth/reset-password` | Request + complete password reset |
+| `GET` | `/api/auth/me` | Current user (requires session) |
 
 <details>
 <summary>Ready document shape</summary>
@@ -109,6 +137,37 @@ in [`openspec/specs/`](openspec/specs/) (and FastAPI's interactive `/docs`).
   } ] } }
 ```
 </details>
+
+## MCP server
+
+EchoNotes can expose its **read** capabilities to MCP clients (Claude Code/Desktop, editors)
+as owner-scoped tools over [Model Context Protocol](https://modelcontextprotocol.io). It is a
+streamable-HTTP server mounted on the same backend at `/mcp`, **off by default** — set
+`ENABLE_MCP=true` to turn it on (`ask_course` also needs `ENABLE_QA=true`).
+
+Auth and isolation mirror the JSON API exactly: the client sends the user's **session JWT** as
+`Authorization: Bearer <token>` (get one from `/api/auth/login` or `/api/auth/me`). Identity comes
+*only* from the token — no tool takes an owner/tenant argument — so you only ever see your own
+courses, and a resource you don't own is indistinguishable from one that doesn't exist.
+
+| Tool | Purpose |
+|---|---|
+| `list_courses` | Your courses (id, name, lecture count) |
+| `search_notes(course_id, query)` | Cross-lecture semantic search over one course |
+| `ask_course(course_id, question)` | Grounded RAG answer from a course's notes (rate-limited) |
+| `get_lecture(lecture_id)` | A lecture's merged study document (or its status) |
+| `export_lecture(lecture_id, format)` | Export a ready lecture as `md` or `html` |
+
+Add it to **Claude Code** (replace host + token):
+
+```bash
+claude mcp add --transport http echonotes https://your-echonotes-host/mcp \
+  --header "Authorization: Bearer <your-session-jwt>"
+```
+
+> v1 uses a static bearer token pasted into the client config. OAuth 2.1 (for a polished Claude
+> Desktop connector flow) is a planned follow-on. See the `mcp-server` capability in
+> [`openspec/specs/`](openspec/specs/).
 
 ## Configuration
 
@@ -129,10 +188,13 @@ Frontend: `VITE_API_BASE` = backend origin (blank in dev → Vite proxy).
 
 ## Deploy
 
+Live: **https://echonotes-sooty.vercel.app** (Vercel SPA → Render API).
+
 [`render.yaml`](render.yaml) deploys the backend to **Render** (Docker, context `backend/`, health
 `/api/health`); the SPA goes to **Vercel** ([`vercel.json`](frontend/vercel.json)). Production state lives in
 **Supabase** (Postgres registry), **Qdrant Cloud** (vectors), and **AWS S3** (diagram images), so the API
-is stateless and scales. After first deploy with `DATABASE_URL`, run `python scripts/init_db.py` once.
+is stateless and scales. A `preDeployCommand` runs `init_db.py && migrate_add_owner.py` (both idempotent)
+on every release — creating/upgrading the schema and back-filling course ownership before traffic hits.
 
 ## Non-negotiables
 

@@ -27,8 +27,7 @@ from app.models import LectureStatus
 log = logging.getLogger("echonotes")
 
 
-@asynccontextmanager
-async def _lifespan(app: FastAPI):
+def _recover_orphaned_lectures() -> None:
     # Recover orphaned lectures ONLY in inline mode. When the pipeline runs in-process
     # (task_always_eager / no broker), a web restart truly kills in-flight work, so we
     # mark it failed instead of leaving an endless "processing" spinner. With a Celery
@@ -45,7 +44,34 @@ async def _lifespan(app: FastAPI):
                     )
         except Exception:
             pass
-    yield
+
+
+# Build the MCP server (capability: mcp-server) ONLY when ENABLE_MCP is set — when off,
+# fastmcp is never imported and no /mcp routes exist (the surface is entirely absent).
+# Fail closed: if the flag is on but init fails, log loudly and run without MCP rather
+# than refusing to boot the whole API.
+_mcp_app = None
+if get_settings().enable_mcp:
+    try:
+        from app.mcp_server import build_mcp_app
+        _mcp_app = build_mcp_app()
+    except Exception:
+        log.exception("ENABLE_MCP is set but the MCP server failed to initialize; "
+                      "continuing without it.")
+        _mcp_app = None
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    # The MCP streamable-HTTP transport has its own lifespan (session manager); nest it
+    # so it starts/stops with the app. When MCP is off, just do the orphan recovery.
+    if _mcp_app is not None:
+        async with _mcp_app.lifespan(app):
+            _recover_orphaned_lectures()
+            yield
+    else:
+        _recover_orphaned_lectures()
+        yield
 
 
 app = FastAPI(title="EchoNotes", version="0.1.0", lifespan=_lifespan)
@@ -76,6 +102,12 @@ if get_settings().enable_web_console:
     app.include_router(web.router)
 else:
     log.info("Server-rendered web console disabled (ENABLE_WEB_CONSOLE=false).")
+
+# Mount the MCP server at /mcp when enabled (read-only, owner-scoped tools; see
+# app/mcp_server.py). Off by default, so the public surface adds nothing unless asked.
+if _mcp_app is not None:
+    app.mount("/mcp", _mcp_app)
+    log.info("MCP server mounted at /mcp (ENABLE_MCP=true).")
 
 
 @app.get("/api/health")

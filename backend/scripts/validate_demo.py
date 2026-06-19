@@ -36,6 +36,7 @@ _TMP = tempfile.mkdtemp(prefix="echonotes_validate_")
 os.environ["DATA_DIR"] = str(pathlib.Path(_TMP) / "data")
 os.environ["CHROMA_DIR"] = str(pathlib.Path(_TMP) / "chroma")
 os.environ.setdefault("PROVIDER", "local")
+os.environ["ENABLE_MCP"] = "true"   # also validate the MCP surface on the real demo notes
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
@@ -108,6 +109,32 @@ def main() -> int:
     if described:
         print("\n----- example DIAGRAM description (vision) -----")
         print(" ", described[0]["text"])
+
+    # --- MCP surface on the REAL demo notes (capability: mcp-server) -----------------
+    # Start the MCP server against this same store and drive it with a real client, so the
+    # demo gate proves search + lecture retrieval work end-to-end over MCP on real data
+    # (auth, owner-scoping, and the no-bearer refusal too). Uses the real vector search.
+    print("\n=== mcp-server — tools over real HTTP against the demo notes ===")
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))  # scripts/ on path
+    import asyncio
+
+    from validate_mcp import exercise_mcp, serve_app
+
+    from app.auth import security
+    from app.main import app as fastapi_app  # ENABLE_MCP=true (set at top) → /mcp is mounted
+    token = security.create_session_token(course.owner_id)
+    base, server = serve_app(fastapi_app)
+    try:
+        mcp = asyncio.run(exercise_mcp(base, token, course.id, lecture_id, query="photosynthesis"))
+    finally:
+        server.should_exit = True
+    check("MCP exposes the 5 read-only tools",
+          set(mcp["tools"]) == {"list_courses", "search_notes", "ask_course", "get_lecture", "export_lecture"})
+    check("MCP list_courses scoped to the demo owner", [c["id"] for c in mcp["courses"]] == [course.id])
+    check("MCP search_notes returns real demo segments", len(mcp["search"]["results"]) >= 1)
+    check("MCP get_lecture returns the ready demo document", mcp.get("lecture", {}).get("status") == "ready")
+    check("MCP cross-tenant/missing id → not-found", mcp.get("missing_course_refused") is True)
+    check("MCP no-bearer request refused", mcp.get("no_auth_refused") is True)
 
     print("\n========== RENDERED NOTES (read these like study notes) ==========\n")
     print(render.document_to_markdown("Demo lecture", doc))

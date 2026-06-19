@@ -114,6 +114,20 @@ class Settings(BaseSettings):
     link_lectures: bool = True
     link_min_similarity: float = 0.5
 
+    # --- Hosted MCP server (capability: mcp-server) ---
+    # A Model Context Protocol server mounted on this same FastAPI app at /mcp, exposing
+    # the READ capabilities (list_courses, search_notes, ask_course, get_lecture,
+    # export_lecture) as owner-scoped tools to MCP clients (Claude Code/Desktop, etc.).
+    # OFF by default — when false, /mcp is not mounted at all (no MCP routes exist).
+    # Auth mirrors the JSON API: the request carries `Authorization: Bearer <session JWT>`,
+    # resolved by the SAME helper as get_current_user; identity comes ONLY from the token.
+    enable_mcp: bool = False
+    # Per-token rate limit on the ask_course tool (it calls the LLM — a paid surface).
+    # Fixed window: at most mcp_ask_rate_limit calls per user per mcp_ask_rate_window
+    # seconds. Set mcp_ask_rate_limit <= 0 to disable throttling.
+    mcp_ask_rate_limit: int = 30
+    mcp_ask_rate_window: int = 60
+
     # --- Auth & multi-tenancy (feature 002, Constitution Art. X) ---
     # ALL of these have safe blank/dev defaults so local dev runs with zero external
     # services: blank JWT_SECRET → a dev-only signing key; blank SMTP → OTP/reset links

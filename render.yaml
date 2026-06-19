@@ -116,6 +116,11 @@ services:
         value: "false"
       - key: ENABLE_QA
         value: "true"
+      # MCP server (capability: mcp-server) — OFF by default. Flip to "true" to mount
+      # the read-only MCP tools at /mcp (ask_course also needs ENABLE_QA=true). Auth is
+      # the user's session JWT passed as `Authorization: Bearer <token>` by the client.
+      - key: ENABLE_MCP
+        value: "false"
       # Disable the single-tenant server-rendered console in production: it has no
       # login and acts as the bootstrap admin, so on a public origin it would let
       # anyone create courses / upload lectures (spending the OpenAI budget). The

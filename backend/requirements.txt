@@ -21,6 +21,9 @@ redis==5.2.1                   # Celery broker/result backend + semantic-cache s
 bcrypt==5.0.0                  # password hashing (with a sha256 pre-hash)
 PyJWT[crypto]==2.13.0          # session JWTs + Google id_token verification (PyJWKClient; pulls cryptography)
 
+# --- MCP server (capability: mcp-server; mounted at /mcp only when ENABLE_MCP=true) ---
+fastmcp==3.4.2                 # hosted Model Context Protocol server (streamable HTTP); reuses the session JWT for auth
+
 # --- Managed storage backends (active only when their env vars are set) ---
 qdrant-client==1.18.0          # vectors  → Qdrant Cloud (QDRANT_URL)
 psycopg[binary]==3.3.4         # registry → managed Postgres (DATABASE_URL)

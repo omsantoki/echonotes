@@ -24,6 +24,14 @@ os.environ.update({
     "CHROMA_DIR": str(pathlib.Path(_TMP) / ".chroma"),
     # provider local so no OpenAI call is attempted (tests never invoke the pipeline)
     "PROVIDER": "local",
+    # async: force INLINE + no broker so the suite is hermetic regardless of what the
+    # real .env declares (it sets a live REDIS_URL + TASK_ALWAYS_EAGER=false). Without
+    # this, active_async() resolves to "celery" here and the inline-mode startup-recovery
+    # test silently flips to celery behavior. Mode-specific tests override via monkeypatch
+    # (e.g. test_lifespan_leaves_orphans_in_celery_mode); the semantic-cache tests inject
+    # fakeredis by patching cache._redis, so cache="off" here does not affect them.
+    "REDIS_URL": "",
+    "TASK_ALWAYS_EAGER": "true",
     # auth: deterministic dev settings; SMTP/Google blank → console + 503 fallbacks
     "JWT_SECRET": "test-secret-key-not-for-production",
     "JWT_EXPIRY": "3600",
