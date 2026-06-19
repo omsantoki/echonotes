@@ -8,6 +8,7 @@ import { useDebounce } from '@/hooks/useDebounce'
 import { LectureCard } from '@/components/cards/LectureCard'
 import { SearchBar } from '@/components/search/SearchBar'
 import { SearchResults } from '@/components/search/SearchResults'
+import { AskPanel } from '@/components/search/AskPanel'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { ErrorState } from '@/components/ui/ErrorState'
 import { Spinner } from '@/components/ui/Spinner'
@@ -77,6 +78,12 @@ export function CourseDetailPage() {
           <div className="mb-6">
             <SearchBar value={q} onChange={setQ} />
           </div>
+
+          {!searching && (
+            <div className="mb-6">
+              <AskPanel courseId={course.id} />
+            </div>
+          )}
 
           {searching ? (
             <div>

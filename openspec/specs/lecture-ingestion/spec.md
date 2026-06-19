@@ -3,9 +3,7 @@
 ## Purpose
 
 Accept a lecture's audio recording and slide PDF as a multipart upload, validate them, create a `Lecture` record in the `processing` state, and launch a background pipeline that turns the inputs into a merged, source-labeled study document. The capability also guarantees that raw audio is discarded after transcription and that no upload survives the run (Constitution Art. IV).
-
 ## Requirements
-
 ### Requirement: Validated multipart upload
 
 The system SHALL accept a multipart upload consisting of `course_id`, `title`, an `audio` file, and a `slides` file, and SHALL reject the request when the target course is not owned by the caller, when the audio file extension is not a recognized audio type, when the slides file is not a `.pdf`, or when any uploaded file exceeds the 500 MB size guard.
@@ -47,7 +45,7 @@ The system SHALL require an authenticated user for the upload endpoint and SHALL
 
 ### Requirement: Create lecture in processing state and launch background pipeline
 
-The system SHALL, on a valid upload, write the audio and slides into a private temporary workspace, create a `Lecture` record with status `processing` and an initial `Queued…` progress message, register a background task to run the pipeline, and respond with HTTP 202 carrying the new `lecture_id` and a `processing` status.
+The system SHALL, on a valid upload, write the audio and slides into a private temporary workspace, create a `Lecture` record with status `processing` and an initial `Queued…` progress message, **enqueue the pipeline onto the asynchronous task queue** (the `process_lecture` Celery task) with the lecture id, course id, audio path, slides path, and workspace path, and respond with HTTP 202 carrying the new `lecture_id` and a `processing` status — returning before the pipeline completes.
 
 #### Scenario: Valid upload accepted
 
@@ -56,11 +54,11 @@ The system SHALL, on a valid upload, write the audio and slides into a private t
 - **AND** SHALL create a `Lecture` with `status` = `processing` and `progress` = `Queued…`
 - **AND** SHALL respond HTTP 202 with `{ "lecture_id": <id>, "status": "processing" }`
 
-#### Scenario: Pipeline scheduled as background work
+#### Scenario: Pipeline enqueued, not run inline
 
 - **WHEN** the lecture record has been created
-- **THEN** the system SHALL register a background task that runs the pipeline with the lecture id, course id, audio path, slides path, and workspace path
-- **AND** SHALL return the response before the pipeline completes
+- **THEN** the system SHALL dispatch the `process_lecture` task (via `.delay`) with the lecture id, course id, audio path, slides path, and workspace path
+- **AND** SHALL return the HTTP 202 response without executing the pipeline in the request handler
 
 ### Requirement: Ordered pipeline stage orchestration
 
@@ -105,6 +103,25 @@ The system SHALL delete the raw audio file immediately after transcription finis
 
 - **WHEN** the pipeline finishes, whether it succeeds or fails
 - **THEN** the system SHALL remove the entire temporary workspace directory (audio and slides) in a `finally` step that ignores deletion errors
+
+### Requirement: Durable asynchronous pipeline processing
+
+The system SHALL process the enqueued lecture pipeline on a Celery worker backed by Redis (broker + result backend), wrapping the unchanged `run_pipeline` work function. The task SHALL be configured for durability — late acknowledgement so an in-flight task is re-delivered if a worker dies, and automatic retry with backoff on transient errors (`ConnectionError`, `TimeoutError`) up to a bounded number of attempts. A final, non-transient failure SHALL still drive the lecture to the `failed` state via the pipeline's own error handling.
+
+#### Scenario: Worker executes the pipeline
+
+- **WHEN** the `process_lecture` task is delivered to a worker
+- **THEN** the worker SHALL invoke `run_pipeline` with the task's arguments, which updates the lecture's progress/status and removes the temp workspace exactly as in the synchronous path
+
+#### Scenario: Transient failure is retried
+
+- **WHEN** the task raises a transient error (`ConnectionError` or `TimeoutError`)
+- **THEN** Celery SHALL retry the task with backoff up to the configured maximum before giving up
+
+#### Scenario: Eager inline execution in dev/test
+
+- **WHEN** `task_always_eager` is true (default for local dev and the test suite, no `REDIS_URL` required)
+- **THEN** dispatching the task SHALL run `run_pipeline` inline in the calling process, preserving the 202-then-poll contract without a broker or worker
 
 ## Known deviations
 

@@ -4,5 +4,6 @@
 # / sentence-transformers) — transcription and embeddings are mocked / passed inline.
 -r requirements.txt
 chromadb==1.5.9
+fakeredis==2.34.0          # in-memory Redis for the semantic-cache tests (no real server)
 pytest==9.1.0
 pytest-cov==7.1.0

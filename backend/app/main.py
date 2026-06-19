@@ -21,7 +21,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from app import store, web
 from app.api import courses, lectures
 from app.auth import router as auth_router
-from app.config import active_storage, get_settings
+from app.config import active_async, active_storage, get_settings
 from app.models import LectureStatus
 
 log = logging.getLogger("echonotes")
@@ -29,19 +29,22 @@ log = logging.getLogger("echonotes")
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
-    # A restart (deploy/crash) kills any in-process BackgroundTask pipeline. Mark
-    # lectures left mid-processing as failed so the UI shows a clear message
-    # instead of an endless "processing" spinner.
-    try:
-        # System path: scan ALL lectures (every owner) — recovery is not per-user.
-        for lec in store.list_all_lectures():
-            if lec.get("status") in ("processing", "uploaded"):
-                store.update_lecture(
-                    lec["id"], status=LectureStatus.failed,
-                    progress="Processing was interrupted (the server restarted). Please re-upload.",
-                )
-    except Exception:
-        pass
+    # Recover orphaned lectures ONLY in inline mode. When the pipeline runs in-process
+    # (task_always_eager / no broker), a web restart truly kills in-flight work, so we
+    # mark it failed instead of leaving an endless "processing" spinner. With a Celery
+    # broker the worker survives web restarts and a deploy must NOT touch lectures the
+    # worker is still processing — durability there comes from acks_late + retries.
+    if active_async()["tasks"] == "inline":
+        try:
+            # System path: scan ALL lectures (every owner) — recovery is not per-user.
+            for lec in store.list_all_lectures():
+                if lec.get("status") in ("processing", "uploaded"):
+                    store.update_lecture(
+                        lec["id"], status=LectureStatus.failed,
+                        progress="Processing was interrupted (the server restarted). Please re-upload.",
+                    )
+        except Exception:
+            pass
     yield
 
 
@@ -86,7 +89,7 @@ def health() -> dict:
         models = {"transcribe": s.transcribe_model, "embed": s.embedding_model,
                   "merge": s.chat_model, "openai_key_set": bool(s.openai_api_key)}
     return {"status": "ok", "provider": s.provider, "models": models,
-            "storage": active_storage()}
+            "storage": active_storage(), "async": active_async()}
 
 
 _STATUS_CODE = {400: "bad_request", 401: "unauthorized", 403: "forbidden",

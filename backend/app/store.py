@@ -252,6 +252,40 @@ def read_diagram_bytes(asset: dict) -> bytes | None:
     return _objects().read_diagram_bytes(asset)
 
 
+# --------------------------------------------------------------------------- #
+# Transient upload handoff — audio + slides travel from the web service to the
+# worker through the object backend (shared in prod via S3), so a separate worker
+# host can process them. No audio is ever persisted past the run (Art. IV): the
+# pipeline calls delete_uploads on every terminal outcome.
+# --------------------------------------------------------------------------- #
+
+def save_upload(lecture_id: str, name: str, src_path: str) -> None:
+    """Stream a freshly-received upload into shared storage for the worker to read."""
+    _objects().save_upload(lecture_id, name, src_path)
+
+
+def read_upload(lecture_id: str, name: str, dest_path: str) -> bool:
+    """Download a stored upload to a local path. Returns False if it is not present."""
+    return _objects().read_upload(lecture_id, name, dest_path)
+
+
+def delete_uploads(lecture_id: str) -> None:
+    """Remove a lecture's stored uploads (audio + slides). Best-effort, idempotent."""
+    _objects().delete_uploads(lecture_id)
+
+
+def reset_lecture_artifacts(lecture_id: str) -> None:
+    """Clear any partial output from a prior crashed attempt before reprocessing,
+    so a redelivered task can re-run without duplicating chunks or diagrams. Keeps
+    the lecture + course registry rows; removes only this lecture's produced output."""
+    try:
+        _vectors().delete_by_lecture(lecture_id)
+    except Exception:
+        pass
+    _objects().delete_lecture_assets(lecture_id)
+    _registry().delete_diagrams_by_lecture(lecture_id)
+
+
 def create_diagram(asset: DiagramAsset) -> DiagramAsset:
     return _registry().create_diagram(asset)
 

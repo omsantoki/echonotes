@@ -8,7 +8,7 @@ storage layer — here we pass `user["id"]`.
 
 from __future__ import annotations
 
-from fastapi import (APIRouter, BackgroundTasks, Depends, File, Form,
+from fastapi import (APIRouter, Depends, File, Form,
                      HTTPException, UploadFile)
 from fastapi.responses import Response
 
@@ -21,11 +21,10 @@ router = APIRouter(prefix="/api/lectures", tags=["lectures"])
 
 
 @router.post("", status_code=202)
-async def create_lecture(bg: BackgroundTasks,
-                         course_id: str = Form(...), title: str = Form(...),
+async def create_lecture(course_id: str = Form(...), title: str = Form(...),
                          audio: UploadFile = File(...), slides: UploadFile = File(...),
                          user: dict = Depends(get_current_user)):
-    lecture = await create_and_launch_lecture(course_id, title, audio, slides, bg,
+    lecture = await create_and_launch_lecture(course_id, title, audio, slides,
                                               owner_id=user["id"])
     return {"lecture_id": lecture.id, "status": "processing"}
 

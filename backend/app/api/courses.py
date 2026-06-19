@@ -12,8 +12,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel
 
-from app import retrieve, store
+from app import answer, retrieve, store
 from app.auth.deps import get_current_user
+from app.config import get_settings
 from app.models import Course
 
 router = APIRouter(prefix="/api/courses", tags=["courses"])
@@ -58,6 +59,20 @@ def search_course(course_id: str, q: str = "", user: dict = Depends(get_current_
     """Cross-lecture search within a course (Strong, T031/FR-10), owner-scoped."""
     _require_owned_course(course_id, user)
     return {"query": q, "results": retrieve.search(course_id, q)}
+
+
+@router.get("/{course_id}/ask")
+def ask_course(course_id: str, q: str = "", user: dict = Depends(get_current_user)):
+    """RAG Q&A: a grounded LLM answer over this course's notes, owner-scoped.
+
+    Backed by a semantic cache (near-duplicate questions return instantly). Returns
+    {answer, sources, cached}. Disabled (503) when ENABLE_QA is off."""
+    _require_owned_course(course_id, user)
+    if not get_settings().enable_qa:
+        raise HTTPException(503, detail={"code": "qa_disabled",
+                                         "message": "Q&A is not enabled on this server."})
+    result = answer.answer_question(course_id, q)
+    return {"query": q, **result}
 
 
 @router.delete("/{course_id}", status_code=204)

@@ -10,8 +10,12 @@ pydantic-settings==2.14.1       # typed config from .env
 python-dotenv==1.2.2
 
 pymupdf==1.27.2.3               # PDF text + embedded image extraction
-numpy==2.4.6                   # cosine similarity for alignment
+numpy==2.4.6                   # cosine similarity for alignment + semantic-cache lookup
 openai==2.41.1                 # OpenAI models (PROVIDER=openai); also the Ollama client
+
+# --- Async task queue + semantic cache (Redis is broker AND cache store) ---
+celery[redis]==5.5.3           # distributed task queue for the lecture pipeline
+redis==5.2.1                   # Celery broker/result backend + semantic-cache store (kombu caps <6.0)
 
 # --- Auth & multi-tenancy (feature 002, Constitution Art. X) ---
 bcrypt==5.0.0                  # password hashing (with a sha256 pre-hash)

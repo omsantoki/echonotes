@@ -55,6 +55,10 @@ def _key(lecture_id: str, asset_id: str, ext: str) -> str:
     return f"assets/{lecture_id}/{asset_id}.{(ext or 'png').lstrip('.')}"
 
 
+def _upload_key(lecture_id: str, name: str) -> str:
+    return f"uploads/{lecture_id}/{name}"
+
+
 class S3Objects:
     def save_diagram_image(self, lecture_id: str, asset_id: str, ext: str, data: bytes) -> str:
         s = get_settings()
@@ -81,3 +85,28 @@ class S3Objects:
             return _client().get_object(Bucket=get_settings().s3_bucket, Key=key)["Body"].read()
         except Exception:
             return None
+
+    # --- transient upload handoff (audio + slides between web and worker) ---
+    # Uploads stream to/from the bucket so a SEPARATE worker host can read what the
+    # web service wrote (streamed, multipart-aware — never loaded fully into memory).
+    # No audio survives a finished pipeline: delete_uploads runs on every terminal
+    # outcome (success, permanent failure, or retry exhaustion). Art. IV.
+    def save_upload(self, lecture_id: str, name: str, src_path: str) -> None:
+        _client().upload_file(src_path, get_settings().s3_bucket,
+                              _upload_key(lecture_id, name))
+
+    def read_upload(self, lecture_id: str, name: str, dest_path: str) -> bool:
+        try:
+            _client().download_file(get_settings().s3_bucket,
+                                    _upload_key(lecture_id, name), dest_path)
+            return True
+        except Exception:
+            return False
+
+    def delete_uploads(self, lecture_id: str) -> None:
+        s = get_settings()
+        prefix = f"uploads/{lecture_id}/"
+        resp = _client().list_objects_v2(Bucket=s.s3_bucket, Prefix=prefix)
+        objects = [{"Key": o["Key"]} for o in resp.get("Contents", [])]
+        if objects:
+            _client().delete_objects(Bucket=s.s3_bucket, Delete={"Objects": objects})

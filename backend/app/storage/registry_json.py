@@ -241,5 +241,15 @@ class JsonRegistry:
         data = self._load()
         return [d for d in data["diagrams"].values() if d["lecture_id"] == lecture_id]
 
+    def delete_diagrams_by_lecture(self, lecture_id: str) -> None:
+        """Drop a lecture's diagram rows but keep the lecture itself (idempotent re-run)."""
+        with self._lock:
+            data = self._load()
+            data["diagrams"] = {
+                aid: a for aid, a in data["diagrams"].items()
+                if a.get("lecture_id") != lecture_id
+            }
+            self._save(data)
+
     def list_all_diagrams(self) -> list[dict]:
         return list(self._load()["diagrams"].values())

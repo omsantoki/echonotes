@@ -1,6 +1,7 @@
 import { apiUrl, ApiRequestError, del, getJson, postJson } from '@/lib/http'
 import { clearToken, getToken } from '@/lib/session'
 import type {
+  AskResponse,
   CourseCreated,
   CourseDetail,
   CourseSummary,
@@ -84,6 +85,8 @@ export const api = {
   getCourse: (id: string) => getJson<CourseDetail>(`/api/courses/${id}`),
   searchCourse: (id: string, q: string) =>
     getJson<SearchResponse>(`/api/courses/${id}/search?q=${encodeURIComponent(q)}`),
+  askCourse: (id: string, q: string) =>
+    getJson<AskResponse>(`/api/courses/${id}/ask?q=${encodeURIComponent(q)}`),
   getLecture: (id: string) => getJson<LectureResponse>(`/api/lectures/${id}`),
   exportLectureUrl: (id: string, format: 'md' | 'html') =>
     apiUrl(`/api/lectures/${id}/export?format=${format}`),

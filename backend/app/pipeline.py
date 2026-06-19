@@ -13,9 +13,10 @@ failure (Constitution Art. IV).
 from __future__ import annotations
 
 import shutil
+import tempfile
 from pathlib import Path
 
-from app import diagrams, refine, retrieve, store
+from app import cache, diagrams, refine, retrieve, store
 from app.align import align
 from app.embed import embed_texts
 from app.merge import merge_section
@@ -23,43 +24,89 @@ from app.models import DiagramAsset, LectureStatus, NoteChunk, SourceType
 from app.slides import extract_slides, filter_images
 from app.transcribe import transcribe
 
+# Errors worth retrying (network blips to STT / the LLM / the vector store or registry).
+# These propagate so Celery can retry the task; everything else is treated as a permanent
+# failure and recorded on the lecture. Kept conservative on purpose.
+_TRANSIENT = (ConnectionError, TimeoutError)
 
-def run_pipeline(lecture_id: str, course_id: str, audio_path: str,
-                 pdf_path: str, workdir: str) -> None:
+
+class _InputsMissing(RuntimeError):
+    """The stored uploads could not be read — a permanent failure for this lecture."""
+
+
+def run_pipeline(lecture_id: str, course_id: str, audio_name: str,
+                 pdf_name: str) -> None:
+    """Process one lecture. Safe to re-run (idempotent): a redelivered task for an
+    already-finished lecture is a no-op, and a re-run after a crash clears partial
+    output first. Raw audio never survives the run (Art. IV)."""
+    # Idempotency: skip if the lecture was deleted, or already finished by an earlier
+    # delivery of this same task (acks_late can re-deliver after a successful run).
+    lec = store.get_lecture(lecture_id)
+    if not lec or lec.get("status") == LectureStatus.ready.value:
+        return
+
+    workdir = Path(tempfile.mkdtemp(prefix="echonotes_"))
     try:
-        store.update_lecture(lecture_id, status=LectureStatus.processing,
-                             progress="Transcribing audio…")
-        segments = transcribe(audio_path)
-        _safe_delete(audio_path)  # audio's only job is done — delete now (Art. IV)
+        _process(lecture_id, course_id, audio_name, pdf_name, workdir)
 
-        store.update_lecture(lecture_id, progress="Reading slides…")
-        sections, images = extract_slides(pdf_path)
-        images = filter_images(images, num_pages=len(sections))
-
-        store.update_lecture(lecture_id, progress="Aligning what was said to the slides…")
-        aligned = align(sections, segments)
-
-        store.update_lecture(lecture_id, progress="Describing diagrams…")
-        diagrams_by_section = _persist_diagrams(lecture_id, sections, images)
-
-        store.update_lecture(lecture_id, progress="Composing your merged notes…")
-        chunks = _compose_chunks(lecture_id, course_id, aligned, diagrams_by_section)
-        if not chunks:
-            raise RuntimeError("No content was produced from the audio + slides.")
-
-        store.update_lecture(lecture_id, progress="Saving notes…")
-        for chunk, vector in zip(chunks, embed_texts([c.text for c in chunks])):
-            chunk.embedding = vector
-        store.add_chunks(chunks)
-        _link_prior_lectures(lecture_id, course_id, chunks)
-
+        # New notes just landed — clear the course's Q&A cache so cached answers can't
+        # mask the new content (no-op when no Redis is configured).
+        cache.invalidate(course_id)
         store.update_lecture(lecture_id, status=LectureStatus.ready, progress="Ready.")
-    except Exception as exc:  # surface to the polling UI; never crash the worker
+        store.delete_uploads(lecture_id)  # success → no audio survives (Art. IV)
+    except _TRANSIENT as exc:
+        # Leave status=processing and KEEP the stored uploads so the retry can re-read
+        # them; re-raise so Celery retries the task with backoff.
+        store.update_lecture(lecture_id, progress=f"Temporary error, retrying… ({exc})")
+        raise
+    except Exception as exc:  # permanent failure — record it; never crash the worker
         store.update_lecture(lecture_id, status=LectureStatus.failed,
                              progress=f"Failed: {exc}")
+        store.delete_uploads(lecture_id)  # permanent failure → no audio survives (Art. IV)
     finally:
-        # Guarantee no upload (audio or PDF) survives, even on failure (Art. IV).
+        # The local working copy is always removed; the shared upload is removed on every
+        # terminal outcome here (and on retry exhaustion by the task's on_failure).
         shutil.rmtree(workdir, ignore_errors=True)
+
+
+def _process(lecture_id: str, course_id: str, audio_name: str,
+             pdf_name: str, workdir: Path) -> None:
+    """The pipeline body. Raises on failure (transient errors bubble up for retry)."""
+    audio_path = workdir / audio_name
+    pdf_path = workdir / pdf_name
+    if not store.read_upload(lecture_id, audio_name, str(audio_path)) or \
+            not store.read_upload(lecture_id, pdf_name, str(pdf_path)):
+        raise _InputsMissing("Uploaded audio/slides are no longer available.")
+
+    # Re-run hygiene: a redelivery after a mid-run crash starts from a clean slate so
+    # chunks/diagrams aren't duplicated (no-op on a first run).
+    store.reset_lecture_artifacts(lecture_id)
+
+    store.update_lecture(lecture_id, status=LectureStatus.processing,
+                         progress="Transcribing audio…")
+    segments = transcribe(str(audio_path))
+    _safe_delete(str(audio_path))  # local audio's job is done — delete now (Art. IV)
+
+    store.update_lecture(lecture_id, progress="Reading slides…")
+    sections, images = extract_slides(str(pdf_path))
+    images = filter_images(images, num_pages=len(sections))
+
+    store.update_lecture(lecture_id, progress="Aligning what was said to the slides…")
+    aligned = align(sections, segments)
+
+    store.update_lecture(lecture_id, progress="Describing diagrams…")
+    diagrams_by_section = _persist_diagrams(lecture_id, sections, images)
+
+    store.update_lecture(lecture_id, progress="Composing your merged notes…")
+    chunks = _compose_chunks(lecture_id, course_id, aligned, diagrams_by_section)
+    if not chunks:
+        raise RuntimeError("No content was produced from the audio + slides.")
+
+    store.update_lecture(lecture_id, progress="Saving notes…")
+    for chunk, vector in zip(chunks, embed_texts([c.text for c in chunks])):
+        chunk.embedding = vector
+    store.add_chunks(chunks)
+    _link_prior_lectures(lecture_id, course_id, chunks)
 
 
 def _compose_chunks(lecture_id, course_id, aligned, diagrams_by_section) -> list[NoteChunk]:

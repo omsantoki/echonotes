@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import html
 
-from fastapi import APIRouter, BackgroundTasks, File, Form, UploadFile
+from fastapi import APIRouter, File, Form, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse
 
 from app import retrieve, store
@@ -78,10 +78,10 @@ def web_create_course(name: str = Form(...)):
 
 
 @router.post("/web/lectures")
-async def web_create_lecture(bg: BackgroundTasks, course_id: str = Form(...),
+async def web_create_lecture(course_id: str = Form(...),
                              title: str = Form(...), audio: UploadFile = File(...),
                              slides: UploadFile = File(...)):
-    lecture = await create_and_launch_lecture(course_id, title, audio, slides, bg,
+    lecture = await create_and_launch_lecture(course_id, title, audio, slides,
                                               owner_id=_owner_id())
     return RedirectResponse(f"/lectures/{lecture.id}", status_code=303)
 

@@ -79,6 +79,13 @@ export interface SearchResponse {
   results: SearchResult[]
 }
 
+export interface AskResponse {
+  query: string
+  answer: string
+  sources: SearchResult[]
+  cached: boolean
+}
+
 export interface ApiError {
   error: { code: string; message: string }
 }

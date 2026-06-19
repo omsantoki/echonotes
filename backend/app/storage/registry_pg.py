@@ -295,5 +295,9 @@ class PostgresRegistry:
         rows = self._exec("SELECT * FROM diagrams WHERE lecture_id = %s", (lecture_id,), fetch="all")
         return [_diagram(r) for r in rows]
 
+    def delete_diagrams_by_lecture(self, lecture_id: str) -> None:
+        """Drop a lecture's diagram rows but keep the lecture itself (idempotent re-run)."""
+        self._exec("DELETE FROM diagrams WHERE lecture_id = %s", (lecture_id,))
+
     def list_all_diagrams(self) -> list[dict]:
         return [_diagram(r) for r in self._exec("SELECT * FROM diagrams", fetch="all")]

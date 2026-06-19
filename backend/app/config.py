@@ -88,6 +88,27 @@ class Settings(BaseSettings):
     align_top_k: int = 3     # attach each spoken segment to its top-3 near-tie sections (decision D-1)
     retrieve_top_n: int = 5  # cap cross-lecture context (Art. VI rationale)
 
+    # --- Async task queue (Celery + Redis) ---
+    # The lecture pipeline (transcribe → … → embed) is heavy, so the upload endpoint
+    # enqueues it and returns 202 immediately; a separate worker pool processes it.
+    # REDIS_URL is the Celery broker + result backend. Leave blank for local dev:
+    # TASK_ALWAYS_EAGER runs the task INLINE in-process (no broker, no worker needed),
+    # which also keeps the test suite hermetic. Production sets REDIS_URL and
+    # TASK_ALWAYS_EAGER=false so the dedicated worker service does the work.
+    redis_url: str = ""               # e.g. redis://host:6379/0 (broker + result backend)
+    task_always_eager: bool = True    # true = run pipeline inline (dev/test); false = enqueue to a worker
+
+    # --- RAG Q&A + semantic cache (GET /api/courses/{id}/ask) ---
+    # "Ask your notes": retrieve the top course chunks, then have the LLM answer
+    # grounded ONLY in them. A semantic cache (Redis) sits in front: a new question
+    # whose embedding is within cache_similarity_threshold of a recent one returns the
+    # stored answer instantly, skipping retrieval + the LLM call. Entries expire
+    # (semantic_cache_ttl) and a course's cache is cleared when a new lecture is ready.
+    enable_qa: bool = True
+    cache_similarity_threshold: float = 0.95  # cosine ≥ this → cache hit
+    semantic_cache_ttl: int = 3600            # cached answer lifetime, seconds (freshness)
+    semantic_cache_max_per_course: int = 200  # bounded brute-force set per course
+
     # Cross-lecture linking (Stretch, T040/T041): link a topic to the most similar
     # EARLIER lecture in the same course, when similarity clears the threshold.
     link_lectures: bool = True
@@ -156,4 +177,18 @@ def active_storage() -> dict:
         else ("chroma-remote" if s.chroma_http_url else "chroma-local"),
         "registry": "postgres" if s.database_url else "json",
         "objects": "s3" if s.s3_bucket else "local",
+    }
+
+
+def active_async() -> dict:
+    """How async work + the semantic cache resolve (surfaced by /api/health).
+
+    `tasks=inline` means the pipeline runs in-process (eager, dev/test); `tasks=celery`
+    means it is enqueued to a Redis-backed worker. `cache` reflects whether the semantic
+    cache has a Redis to live in (else it no-ops, every ask is a miss)."""
+    s = get_settings()
+    return {
+        "tasks": "celery" if (s.redis_url and not s.task_always_eager) else "inline",
+        "broker": "redis" if s.redis_url else "none",
+        "cache": "redis" if s.redis_url else "off",
     }

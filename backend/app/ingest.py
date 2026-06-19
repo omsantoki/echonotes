@@ -7,21 +7,22 @@ API and the web form go through here, so there is exactly one ingestion path.
 
 from __future__ import annotations
 
+import shutil
 import tempfile
 from pathlib import Path
 
-from fastapi import BackgroundTasks, HTTPException, UploadFile
+from fastapi import HTTPException, UploadFile
 
 from app import store
 from app.models import Lecture, LectureStatus
-from app.pipeline import run_pipeline
+from app.tasks import process_lecture
 
 _AUDIO_EXTS = {".mp3", ".m4a", ".wav", ".flac", ".ogg", ".webm", ".mp4", ".mpeg", ".mpga", ".aac"}
 _MAX_BYTES = 500 * 1024 * 1024  # 500 MB guard rail
 
 
 async def create_and_launch_lecture(course_id: str, title: str, audio: UploadFile,
-                                    slides: UploadFile, bg: BackgroundTasks,
+                                    slides: UploadFile,
                                     owner_id: str | None = None) -> Lecture:
     # Owner-scoped lookup: a course the caller doesn't own reads as "not found" (Art. X),
     # so uploading to someone else's course returns 404, not 403.
@@ -31,29 +32,40 @@ async def create_and_launch_lecture(course_id: str, title: str, audio: UploadFil
     _require_ext(audio.filename, _AUDIO_EXTS, "audio")
     _require_ext(slides.filename, {".pdf"}, "slides (PDF)")
 
-    workdir = Path(tempfile.mkdtemp(prefix="echonotes_"))
-    audio_path = workdir / f"audio{_ext(audio.filename)}"
-    pdf_path = workdir / "slides.pdf"
-    await _save(audio, audio_path)
-    await _save(slides, pdf_path)
-
     lecture = Lecture(course_id=course_id, title=title or "Untitled lecture",
                       status=LectureStatus.processing, progress="Queued…")
     store.create_lecture(lecture)
-    bg.add_task(run_pipeline, lecture.id, course_id, str(audio_path),
-                str(pdf_path), str(workdir))
+
+    # Stream both uploads into SHARED storage (object backend) so a separate worker
+    # host can read them — not a local temp dir the worker can't see. We name them
+    # deterministically per lecture; the worker downloads them by name.
+    audio_name = f"audio{_ext(audio.filename)}"
+    pdf_name = "slides.pdf"
+    await _save_to_store(audio, lecture.id, audio_name)
+    await _save_to_store(slides, lecture.id, pdf_name)
+
+    # Enqueue the heavy pipeline onto the Celery queue and return immediately. In dev/test
+    # (task_always_eager) this runs inline; in prod a separate worker picks it up.
+    process_lecture.delay(lecture.id, course_id, audio_name, pdf_name)
     return lecture
 
 
-async def _save(upload: UploadFile, dest: Path) -> None:
-    size = 0
-    with dest.open("wb") as fh:
-        while chunk := await upload.read(1024 * 1024):
-            size += len(chunk)
-            if size > _MAX_BYTES:
-                raise HTTPException(413, detail={"code": "file_too_large",
-                                                 "message": "Upload exceeds 500 MB."})
-            fh.write(chunk)
+async def _save_to_store(upload: UploadFile, lecture_id: str, name: str) -> None:
+    """Stream an upload to a size-guarded local temp file, then hand it to shared
+    storage and remove the temp copy (so nothing accumulates on the web host)."""
+    tmp = Path(tempfile.mkdtemp(prefix="echonotes_up_")) / name
+    try:
+        size = 0
+        with tmp.open("wb") as fh:
+            while chunk := await upload.read(1024 * 1024):
+                size += len(chunk)
+                if size > _MAX_BYTES:
+                    raise HTTPException(413, detail={"code": "file_too_large",
+                                                     "message": "Upload exceeds 500 MB."})
+                fh.write(chunk)
+        store.save_upload(lecture_id, name, str(tmp))
+    finally:
+        shutil.rmtree(tmp.parent, ignore_errors=True)
 
 
 def _ext(name: str | None) -> str:

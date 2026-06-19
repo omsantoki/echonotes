@@ -1,7 +1,78 @@
 # Render Blueprint for the EchoNotes API (backend only; frontend → Vercel).
 # All persistent state lives in managed services (Postgres + Qdrant + R2/S3), so
 # the service is stateless: no disk, workers can scale.
+#
+# Async pipeline: a Redis instance is the Celery broker, the `echonotes-api` web
+# service enqueues each upload's pipeline, and the `echonotes-worker` service runs it.
+#
+# Uploads (audio + slides) are handed off through the OBJECT STORAGE backend, so the
+# separate worker host reads exactly what the web service wrote. This REQUIRES S3_BUCKET
+# to be set on BOTH services (production already uses R2/S3). Without object storage the
+# uploads land on local disk, which two hosts don't share — in that case keep
+# TASK_ALWAYS_EAGER=true so the pipeline runs inline in the web service.
+# The worker is durable: late-ack re-delivers a task if it dies mid-run, transient
+# errors retry with backoff, and the pipeline is idempotent on re-delivery. No raw
+# audio survives a finished run — uploads are deleted on every terminal outcome.
+databases: []
 services:
+  - type: redis
+    name: echonotes-redis
+    region: oregon
+    plan: starter
+    maxmemoryPolicy: noeviction   # don't drop queued tasks under memory pressure
+    ipAllowList: []               # private to other Render services only
+
+  - type: worker
+    name: echonotes-worker
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
+    region: oregon
+    plan: starter
+    dockerCommand: celery -A app.worker worker --loglevel=info --concurrency=2
+    envVars:
+      - key: REDIS_URL
+        fromService:
+          name: echonotes-redis
+          type: redis
+          property: connectionString
+      - key: TASK_ALWAYS_EAGER
+        value: "false"
+      # The worker runs the SAME app, so it needs the same provider/model/storage env.
+      # Set these to match echonotes-api (Render does not auto-share across services).
+      - key: PROVIDER
+        value: openai
+      - key: CHAT_MODEL
+        value: gpt-4o-mini
+      - key: TRANSCRIBE_MODEL
+        value: whisper-1
+      - key: EMBEDDING_MODEL
+        value: text-embedding-3-small
+      - key: DESCRIBE_DIAGRAMS
+        value: "true"
+      - key: REFINE_NOTES
+        value: "false"
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: QDRANT_URL
+        sync: false
+      - key: QDRANT_API_KEY
+        sync: false
+      - key: DATABASE_URL
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ENDPOINT_URL
+        sync: false
+      - key: S3_REGION
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
+      - key: S3_PUBLIC_BASE_URL
+        sync: false
+
   - type: web
     name: echonotes-api
     runtime: docker
@@ -32,6 +103,19 @@ services:
         value: "false"
       - key: WEB_CONCURRENCY
         value: "2"
+      # --- async queue + semantic cache (Redis) ---
+      - key: REDIS_URL
+        fromService:
+          name: echonotes-redis
+          type: redis
+          property: connectionString
+      # false → enqueue the pipeline to echonotes-worker. Safe in prod because uploads
+      # are shared via object storage (S3_BUCKET must be set). Set "true" to run inline
+      # in the web service instead (required if you have no object storage configured).
+      - key: TASK_ALWAYS_EAGER
+        value: "false"
+      - key: ENABLE_QA
+        value: "true"
       # Disable the single-tenant server-rendered console in production: it has no
       # login and acts as the bootstrap admin, so on a public origin it would let
       # anyone create courses / upload lectures (spending the OpenAI budget). The

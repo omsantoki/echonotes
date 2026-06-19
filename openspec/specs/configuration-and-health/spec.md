@@ -3,9 +3,7 @@
 ## Purpose
 
 Centralize all configuration in one environment-driven settings object (`app/config.py`) with safe blank/dev defaults so local development runs with zero external services, and expose an operator-facing `/api/health` endpoint plus a uniform error envelope (`app/main.py`) that reveal which backend each subsystem resolved to and whether each secret is set — never the secret value itself.
-
 ## Requirements
-
 ### Requirement: Settings loaded from environment with safe defaults
 
 The system SHALL load all configuration through a single `pydantic_settings.BaseSettings` subclass (`Settings`) that reads from environment variables and an optional `.env` file, ignoring unknown keys, and SHALL default every external-service credential and URL to a blank/dev value so the app starts with no external services configured.
@@ -62,19 +60,25 @@ The system SHALL resolve each storage subsystem to a named backend via `active_s
 
 ### Requirement: Health endpoint reports config sanity without leaking secrets
 
-The system SHALL expose `GET /api/health` returning `status`, `provider`, a `models` map for the active provider, and the `storage` backend map from `active_storage()`. For the OpenAI provider it SHALL include only the boolean `models.openai_key_set` (whether `openai_api_key` is non-empty) and SHALL NOT include the key value.
+The system SHALL expose `GET /api/health` returning `status`, `provider`, a `models` map for the active provider, the `storage` backend map from `active_storage()`, and the `async` map from `active_async()`. For the OpenAI provider it SHALL include only the boolean `models.openai_key_set` (whether `openai_api_key` is non-empty) and SHALL NOT include the key value.
 
 #### Scenario: Local provider health
 
 - **WHEN** `GET /api/health` is requested with `provider == "local"`
 - **THEN** the response includes `status == "ok"`, `provider == "local"`, and `models` with `transcribe` (= `whisper_model`), `embed` (= `local_embedding_model`), and `merge` (= `"ollama:" + ollama_model`)
 - **AND** `storage` equals the `active_storage()` map
+- **AND** `async` equals the `active_async()` map
 
 #### Scenario: OpenAI provider exposes only key-set boolean
 
 - **WHEN** `GET /api/health` is requested with `provider == "openai"`
 - **THEN** `models` includes `transcribe` (= `transcribe_model`), `embed` (= `embedding_model`), `merge` (= `chat_model`), and `openai_key_set` as a boolean
 - **AND** the raw `openai_api_key` value never appears in the response
+
+#### Scenario: Async mode reported
+
+- **WHEN** `GET /api/health` is requested
+- **THEN** the response includes an `async` object with `tasks`, `broker`, and `cache` fields and no credential values
 
 ### Requirement: OpenAI key required with an actionable error
 
@@ -132,6 +136,21 @@ The system SHALL mount the server-rendered web console router only when `enable_
 
 - **WHEN** the app starts with `enable_web_console` false
 - **THEN** the `web.router` is NOT included and the app logs that the console is disabled
+
+### Requirement: Async task and cache mode surfaced without credentials
+
+The system SHALL resolve how asynchronous work and the semantic cache are configured via `active_async()`, based solely on whether `redis_url` is set and the `task_always_eager` flag: `tasks` reports `"celery"` when `redis_url` is set and `task_always_eager` is false, else `"inline"`; `broker` reports `"redis"` when `redis_url` is set, else `"none"`; `cache` reports `"redis"` when `redis_url` is set, else `"off"`. It SHALL return only these names and never any connection string or credential.
+
+#### Scenario: Redis configured with workers
+
+- **WHEN** `redis_url` is set and `task_always_eager` is false
+- **THEN** `active_async()` returns `{"tasks": "celery", "broker": "redis", "cache": "redis"}`
+
+#### Scenario: Local dev defaults
+
+- **WHEN** `redis_url` is blank
+- **THEN** `active_async()` returns `{"tasks": "inline", "broker": "none", "cache": "off"}`
+- **AND** no connection string appears in the result
 
 ## Known deviations
 
