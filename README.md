@@ -18,6 +18,8 @@
 
 **▶ Live demo:** **https://echonotes-sooty.vercel.app** — create an account, start a course, and upload a lecture.
 
+**Sample Data - https://drive.google.com/drive/folders/1n2Bmg13yB0A2AcNrwZpnI4HNbIjgnLKZ**
+
 An **AI-powered, RAG-based full-stack web app** — a multimodal pipeline combining **speech-to-text**,
 **document/PDF parsing**, **vision LLMs**, **text embeddings**, and **vector search** behind a FastAPI
 backend and a React SPA.
