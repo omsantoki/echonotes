@@ -20,6 +20,8 @@
 
 **Sample Data - https://drive.google.com/drive/folders/1n2Bmg13yB0A2AcNrwZpnI4HNbIjgnLKZ**
 
+**Demo Video - https://drive.google.com/file/d/1lvQ3dPzjQJ2esf12995hiPDclMUXZTVR/view?usp=sharing**
+
 An **AI-powered, RAG-based full-stack web app** — a multimodal pipeline combining **speech-to-text**,
 **document/PDF parsing**, **vision LLMs**, **text embeddings**, and **vector search** behind a FastAPI
 backend and a React SPA.
